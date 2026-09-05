@@ -15,7 +15,9 @@ public class MappingProfile : BaseMappingProfile
         CreateMap<UserAggregate, UserDto>();
 
         CreateMap<CreateAuthRequestCommand, AuthRequest>();
-        CreateMap<AuthRequest, AuthRequestDto>()
-            .ForMember(item => item.VerificationCode, cfg => cfg.MapFrom(src => src.ActivationCode));
+
+        // No mapping for ActivationCode: the verification code must never reach a DTO that is returned
+        // over HTTP. It is delivered through IVerificationCodeSender instead.
+        CreateMap<AuthRequest, AuthRequestDto>();
     }
 }

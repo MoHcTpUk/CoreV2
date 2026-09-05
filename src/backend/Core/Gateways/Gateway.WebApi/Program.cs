@@ -1,4 +1,5 @@
 using Gateway.Api;
+using Gateway.Api.Endpoints;
 using Sample.Api;
 using Users.Api;
 using Environments = Shared.Environments;
@@ -99,6 +100,9 @@ if (app.Environment.IsDevelopment() || app.Environment.EnvironmentName == Enviro
 }
 
 app.MapGet("/test", () => "Hello from Gateway!").AllowAnonymous();
+
+// Registered only when the environment is Development — see DevelopmentAuthEndpoints.
+app.MapDevelopmentAuthEndpoints();
 
 app.UseWhen(
     context => !context.Request.Path.StartsWithSegments("/connect", StringComparison.OrdinalIgnoreCase),

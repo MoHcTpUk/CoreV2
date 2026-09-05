@@ -10,6 +10,7 @@ namespace Users.Application.Handlers;
 
 public class CreateAuthRequestHandler(
     IAuthRequestRepository authRequestRepository,
+    IVerificationCodeSender verificationCodeSender,
     IMapper mapper)
     : ICommandHandler<CreateAuthRequestCommand, AuthRequestDto>
 {
@@ -35,7 +36,13 @@ public class CreateAuthRequestHandler(
 
         await authRequestRepository.SaveChangesAsync();
 
-        var dto = mapper.Map<AuthRequestDto>(result.First());
+        var createdAuthRequest = result.First();
+
+        // The code leaves the system only through the delivery channel; the DTO below carries no secret.
+        await verificationCodeSender.SendAsync(createdAuthRequest.Email, createdAuthRequest.ActivationCode,
+            cancellationToken);
+
+        var dto = mapper.Map<AuthRequestDto>(createdAuthRequest);
 
         return dto;
     }

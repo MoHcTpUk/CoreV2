@@ -37,4 +37,16 @@ public class UserService(ICommandBus commandBus)
 
         return result;
     }
+
+    public async Task<DevelopmentAuthCodeDto> GetDevelopmentAuthCode(GetDevelopmentAuthCodeCommand command)
+    {
+        var result =
+            await _commandBus.SendAsync<GetDevelopmentAuthCodeCommand, DevelopmentAuthCodeDto>(
+                command, Subject);
+
+        if (result is null)
+            throw new InvalidOperationException("Verification code could not be read.");
+
+        return result;
+    }
 }

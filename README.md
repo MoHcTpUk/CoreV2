@@ -86,8 +86,71 @@ curl -k -X POST https://api.coreapp.local:8443/Users/CreateAuthRequest \
   -H 'Content-Type: application/json' -d '{"email":"test@example.com"}'
 ```
 
-Exchange the returned `id` and `verificationCode` at `https://auth.coreapp.local:8443/connect/token` for an
+The response contains only `id` and `email` — the verification code is **never** returned by this endpoint.
+The code is delivered out-of-band (see [Verification code delivery](#verification-code-delivery)).
+
+The local stack runs with `ASPNETCORE_ENVIRONMENT=Development` / `DOTNET_ENVIRONMENT=Development`, so the
+code is written to the `users` service log and can also be read back through the dev-only endpoint:
+
+```bash
+curl -k https://api.coreapp.local:8443/dev/auth-requests/<id>/verification-code
+```
+
+That endpoint is mapped only when the host environment is `Development`, and the handler behind it refuses
+the request in any other environment. On stage and in production it does not exist (404). The same code is
+in the service log:
+
+```bash
+docker service logs core_users | grep DEVELOPMENT
+```
+
+Exchange the `id` and the `verificationCode` at `https://auth.coreapp.local:8443/connect/token` for an
 access token, then call `POST /Samples/Create` with it.
+
+## Verification code delivery
+
+`POST /Users/CreateAuthRequest` generates a verification code, stores it, and hands it to
+`IVerificationCodeSender` (`Users.Application/Interfaces/IVerificationCodeSender.cs`). The code is a shared
+secret that is exchanged for an access token, so it leaves the system only through that channel — never in
+an HTTP response body.
+
+The implementation is chosen by environment in `Users.Infrastructure/Extensions.cs`, not by a configuration
+flag:
+
+| Environment | Implementation | Behaviour |
+| --- | --- | --- |
+| `Development`, `Local` | `DevelopmentVerificationCodeSender` | Logs the code at `Warning` level; no mail server needed |
+| everything else (`Stage`, `Production`, …) | `SmtpVerificationCodeSender` | Mails the code over SMTP |
+
+`Local` is the profile the IDE run configurations in `src/backend/Core/.run/` use. The dev-only endpoint
+below is narrower: it is mapped **only** under `Development`. When running the services from the IDE under
+`Local`, read the code from the service console output.
+
+SMTP is configured through the `Notifications:Smtp` section of the `users` service configuration
+(`Services/Users/Users.Service/appsettings*.json`):
+
+| Key | Default | Meaning |
+| --- | --- | --- |
+| `Notifications:Smtp:Host` | empty | SMTP server host. Empty → sending fails with a clear error |
+| `Notifications:Smtp:Port` | `587` | SMTP port |
+| `Notifications:Smtp:EnableSsl` | `true` | Use STARTTLS/SSL |
+| `Notifications:Smtp:UserName` | empty | SMTP login. Empty → default credentials |
+| `Notifications:Smtp:Password` | empty | SMTP password. **Never commit it** |
+| `Notifications:Smtp:FromAddress` | `no-reply@example.com` | Envelope/from address |
+| `Notifications:Smtp:FromDisplayName` | `Core` | Display name of the sender |
+| `Notifications:Smtp:Subject` | `Your verification code` | Message subject |
+| `Notifications:Smtp:BodyTemplate` | `Your verification code is {code}.` | Body; `{code}` is substituted |
+| `Notifications:Smtp:TimeoutMilliseconds` | `10000` | Send timeout |
+
+The values committed to `appsettings.json` / `appsettings.Stage.json` are non-secret placeholders. Supply
+the real credentials at deploy time through environment variables or Docker secrets, which override the
+file values:
+
+```bash
+Notifications__Smtp__Host=smtp.your-provider.example
+Notifications__Smtp__UserName=...
+Notifications__Smtp__Password=...
+```
 
 ## Common Flows
 
