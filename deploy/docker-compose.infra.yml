@@ -1,0 +1,106 @@
+services:
+  traefik:
+    image: traefik:v3.6.2
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - ./certs:/certs:ro
+    command:
+      - "--log.level=DEBUG"
+      - "--api.insecure=true"
+      - "--entryPoints.traefik.address=:8080"
+      - "--providers.swarm=true"
+      - "--providers.swarm.exposedbydefault=false"
+      - "--providers.swarm.network=infra_traefik"
+      - "--entryPoints.web.address=:80"
+      - "--entryPoints.websecure.address=:443"
+      - "--entryPoints.websecure.http3=true"
+      - "--entryPoints.websecure.http3.advertisedPort=8443"
+      - "--providers.file.directory=/certs"
+      - "--providers.file.watch=true"
+    deploy:
+      placement:
+        constraints:
+          - node.role == manager
+    networks:
+      - traefik
+
+  postgres:
+    image: postgres:latest
+    environment:
+      POSTGRES_USER: user
+      POSTGRES_PASSWORD: password
+    volumes:
+      - postgres_data:/var/lib/postgresql
+    ports:
+      - target: 5432
+        published: 4321
+        mode: host
+    networks:
+      - traefik
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U user"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:alpine
+    command: --save 60 1 --loglevel warning
+    volumes:
+      - redis_data:/data
+    networks:
+      - traefik
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli ping | grep PONG"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  nats:
+    image: nats:latest
+    command: ["-js", "-m", "8222"]
+    ports:
+      - target: 4222
+        published: 4223
+        mode: host
+      - target: 8222
+        published: 8223
+        mode: host
+    volumes:
+      - nats_data:/data
+    deploy:
+      replicas: 1
+      placement:
+        constraints: [node.role == manager]
+    networks:
+      - traefik
+
+  minio:
+    image: minio/minio:latest
+    ports:
+      - target: 9000
+        published: 9009
+        mode: host
+      - target: 9001
+        published: 9001
+        mode: host
+    environment:
+      MINIO_ROOT_USER: adminadmin
+      MINIO_ROOT_PASSWORD: adminadmin
+    volumes:
+      - minio_data:/data
+    command: server /data --console-address ":9001"
+    networks:
+      - traefik
+
+volumes:
+  postgres_data:
+  nats_data:
+  minio_data:
+  redis_data:
+
+networks:
+  traefik:
+    name: infra_traefik
+    driver: overlay
+    attachable: true

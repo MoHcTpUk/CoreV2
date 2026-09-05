@@ -1,0 +1,67 @@
+using Identity.WebApi;
+using Identity.WebApi.Middleware;
+using Shared.Api.Filters;
+using Environments = Shared.Environments;
+
+var builder = WebApplication.CreateBuilder(args);
+
+builder.Services.AddOpenApi(options =>
+{
+    options.AddDocumentTransformer<OpenApiDocumentTransformer>();
+});
+builder.Services.AddEndpointsApiExplorer();
+
+builder.Services.AddControllers(options => { options.Filters.Add<RemoteProblemDetailsExceptionFilter>(); });
+builder.Services.AddIdentityWebApi(builder.Configuration);
+
+builder.Services.AddHostedService<AppInitializer>();
+
+if (builder.Environment.IsDevelopment() || builder.Environment.EnvironmentName == Environments.Local)
+    builder.Services.AddCors(options =>
+    {
+        options.AddPolicy("NoLocalCORS", policy =>
+        {
+            policy
+                .SetIsOriginAllowed(origin =>
+                {
+                    try
+                    {
+                        var uri = new Uri(origin);
+                        var isLocalhost = uri.Host == "localhost" || uri.Host == "127.0.0.1";
+
+                        var isCoreappLocal = uri.Host == "coreapp.local" || uri.Host.EndsWith(".coreapp.local");
+
+                        return isLocalhost || isCoreappLocal;
+                    }
+                    catch
+                    {
+                        return false;
+                    }
+                })
+                .AllowAnyHeader()
+                .AllowAnyMethod()
+                .AllowCredentials();
+        });
+    });
+
+var app = builder.Build();
+
+if (app.Environment.IsProduction()) app.UseHttpsRedirection();
+
+if (app.Environment.IsDevelopment() || app.Environment.EnvironmentName == Environments.Local)
+    app.UseCors("NoLocalCORS");
+
+// Map OpenAPI before authentication middleware to ensure it's accessible
+if (app.Environment.IsDevelopment() || app.Environment.EnvironmentName == Environments.Local)
+    app.MapOpenApi().AllowAnonymous();
+
+// Allows issuing tokens from verification flows by translating custom request payloads
+// to an internal /connect/token password grant flow within the same HTTP request.
+app.UseMiddleware<VerifyAuthToTokenMiddleware>();
+
+app.UseAuthentication();
+app.UseAuthorization();
+
+app.MapControllers();
+
+app.Run();

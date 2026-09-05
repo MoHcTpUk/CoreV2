@@ -1,0 +1,49 @@
+services:
+  gateway:
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Stage
+    deploy:
+      labels:
+        - "traefik.enable=true"
+        # HTTP роутер (редирект на HTTPS)
+        - "traefik.http.routers.gateway.rule=Host(`api.${STAGE_DOMAIN}`)"
+        - "traefik.http.routers.gateway.entrypoints=web"
+        - "traefik.http.routers.gateway.middlewares=gateway-redirect"
+        - "traefik.http.middlewares.gateway-redirect.redirectscheme.scheme=https"
+        - "traefik.http.middlewares.gateway-redirect.redirectscheme.permanent=true"
+        # HTTPS роутер (HTTP/3 включён на entrypoint websecure в Traefik)
+        - "traefik.http.routers.gateway-secure.rule=Host(`api.${STAGE_DOMAIN}`)"
+        - "traefik.http.routers.gateway-secure.entrypoints=websecure"
+        - "traefik.http.routers.gateway-secure.tls=true"
+        - "traefik.http.routers.gateway-secure.tls.certresolver=letsencrypt"
+        - "traefik.http.services.gateway.loadbalancer.server.port=8080"
+
+  users:
+    environment:
+      - DOTNET_ENVIRONMENT=Stage
+
+  sample:
+    environment:
+      - DOTNET_ENVIRONMENT=Stage
+
+  identity:
+    environment:
+      - DOTNET_ENVIRONMENT=Stage
+
+  identity-webapi:
+    environment:
+      - DOTNET_ENVIRONMENT=Stage
+    deploy:
+      labels:
+        - "traefik.enable=true"
+        # HTTP роутер (редирект на HTTPS)
+        - "traefik.http.routers.identity-webapi.rule=Host(`auth.${STAGE_DOMAIN}`)"
+        - "traefik.http.routers.identity-webapi.entrypoints=web"
+        - "traefik.http.routers.identity-webapi.middlewares=identity-webapi-redirect"
+        - "traefik.http.middlewares.identity-webapi-redirect.redirectscheme.scheme=https"
+        - "traefik.http.middlewares.identity-webapi-redirect.redirectscheme.permanent=true"
+        # HTTPS роутер
+        - "traefik.http.routers.identity-webapi-secure.rule=Host(`auth.${STAGE_DOMAIN}`)"
+        - "traefik.http.routers.identity-webapi-secure.entrypoints=websecure"
+        - "traefik.http.routers.identity-webapi-secure.tls=true"
+        - "traefik.http.services.identity-webapi.loadbalancer.server.port=8080"

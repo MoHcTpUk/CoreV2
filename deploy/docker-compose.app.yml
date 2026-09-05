@@ -1,0 +1,101 @@
+services:
+  # Gateway сервис в Docker
+  # Для переключения между Docker и локальным режимом используйте скрипт:
+  #   ./switch-gateway-mode.sh docker  - Gateway в Docker (по умолчанию)
+  #   ./switch-gateway-mode.sh local   - Gateway локально на host.docker.internal:5000
+  # См. GATEWAY-SWITCH-MODE.md для подробностей
+  gateway:
+    image: ${REGISTRY:-ghcr.io/mohctpuk}/${IMAGE_PREFIX:-core}-gateway:latest
+    networks:
+      - infra_traefik
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Development
+    deploy:
+      labels:
+        - "traefik.enable=true"
+        # HTTP роутер (редирект на HTTPS)
+        - "traefik.http.routers.gateway.rule=Host(`api.${LOCAL_DOMAIN:-coreapp.local}`)"
+        - "traefik.http.routers.gateway.entrypoints=web"
+        - "traefik.http.routers.gateway.middlewares=gateway-redirect"
+        - "traefik.http.middlewares.gateway-redirect.redirectscheme.scheme=https"
+        - "traefik.http.middlewares.gateway-redirect.redirectscheme.permanent=true"
+        # HTTPS роутер
+        - "traefik.http.routers.gateway-secure.rule=Host(`api.${LOCAL_DOMAIN:-coreapp.local}`)"
+        - "traefik.http.routers.gateway-secure.entrypoints=websecure"
+        - "traefik.http.routers.gateway-secure.tls=true"
+        - "traefik.http.services.gateway.loadbalancer.server.port=8080"
+      restart_policy:
+        condition: on-failure
+        delay: 5s
+        max_attempts: 10
+        window: 60s
+
+  users:
+    image: ${REGISTRY:-ghcr.io/mohctpuk}/${IMAGE_PREFIX:-core}-users:latest
+    networks:
+      - infra_traefik
+    environment:
+      - DOTNET_ENVIRONMENT=Development
+    deploy:
+      restart_policy:
+          condition: on-failure
+          delay: 5s
+          max_attempts: 10
+          window: 60s
+
+  sample:
+    image: ${REGISTRY:-ghcr.io/mohctpuk}/${IMAGE_PREFIX:-core}-sample:latest
+    networks:
+      - infra_traefik
+    environment:
+      - DOTNET_ENVIRONMENT=Development
+    deploy:
+      restart_policy:
+        condition: on-failure
+        delay: 5s
+        max_attempts: 10
+        window: 60s
+
+  identity:
+    image: ${REGISTRY:-ghcr.io/mohctpuk}/${IMAGE_PREFIX:-core}-identity:latest
+    networks:
+      - infra_traefik
+    environment:
+      - DOTNET_ENVIRONMENT=Development
+    deploy:
+      restart_policy:
+        condition: on-failure
+        delay: 5s
+        max_attempts: 10
+        window: 60s
+
+  identity-webapi:
+    image: ${REGISTRY:-ghcr.io/mohctpuk}/${IMAGE_PREFIX:-core}-identity-webapi:latest
+    networks:
+      - infra_traefik
+    environment:
+      - DOTNET_ENVIRONMENT=Development
+    deploy:
+      labels:
+        - "traefik.enable=true"
+        # HTTP роутер (редирект на HTTPS)
+        - "traefik.http.routers.identity-webapi.rule=Host(`auth.${LOCAL_DOMAIN:-coreapp.local}`)"
+        - "traefik.http.routers.identity-webapi.entrypoints=web"
+        - "traefik.http.routers.identity-webapi.middlewares=identity-webapi-redirect"
+        - "traefik.http.middlewares.identity-webapi-redirect.redirectscheme.scheme=https"
+        - "traefik.http.middlewares.identity-webapi-redirect.redirectscheme.permanent=true"
+        # HTTPS роутер
+        - "traefik.http.routers.identity-webapi-secure.rule=Host(`auth.${LOCAL_DOMAIN:-coreapp.local}`)"
+        - "traefik.http.routers.identity-webapi-secure.entrypoints=websecure"
+        - "traefik.http.routers.identity-webapi-secure.tls=true"
+        - "traefik.http.services.identity-webapi.loadbalancer.server.port=8080"
+      restart_policy:
+        condition: on-failure
+        delay: 5s
+        max_attempts: 10
+        window: 60s
+
+networks:
+  infra_traefik:
+    name: infra_traefik
+    external: true
