@@ -2,6 +2,10 @@
 *.pem
 *.key
 *.crt
+# Ключевой материал OpenIddict (deploy/generate-identity-certs.sh) — только локально.
+*.pfx
+*.p12
+*.pass
 !.gitignore
 !tls-config.yml
 gateway-local.yml

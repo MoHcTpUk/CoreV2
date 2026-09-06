@@ -12,7 +12,7 @@ builder.Services.AddOpenApi(options =>
 builder.Services.AddEndpointsApiExplorer();
 
 builder.Services.AddControllers(options => { options.Filters.Add<RemoteProblemDetailsExceptionFilter>(); });
-builder.Services.AddIdentityWebApi(builder.Configuration);
+builder.Services.AddIdentityWebApi(builder.Configuration, builder.Environment);
 
 builder.Services.AddHostedService<AppInitializer>();
 

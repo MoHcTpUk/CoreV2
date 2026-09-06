@@ -58,6 +58,7 @@ created from `deploy/.env.example` on the machine that runs the stack and is git
 | `POSTGRES_USER`, `POSTGRES_PASSWORD` | `postgres`; `users`, `sample`, `identity`, `identity-webapi` | Database login. Substituted into `ConnectionStrings__DefaultConnection`, so avoid `;`, `'` and `"` in the password |
 | `NATS_USER`, `NATS_PASSWORD` | `nats`; all five services | Bus login. The bus rejects unauthenticated clients |
 | `MINIO_ROOT_USER`, `MINIO_ROOT_PASSWORD` | `minio`; `gateway` | Object storage root credentials |
+| `REDIS_CONNECTION_STRING` | `identity-webapi` | Where the DataProtection key ring lives. `redis:6379` by default — the Redis of the infra stack |
 | `TRAEFIK_LOG_LEVEL` | `traefik` | `INFO` by default. `DEBUG` logs request headers — never on stage |
 | `TRAEFIK_DASHBOARD_HOST`, `TRAEFIK_DASHBOARD_AUTH` | `traefik` | Only for the optional dashboard override (see below) |
 
@@ -130,6 +131,59 @@ nats-server expands `$NATS_USER` / `$NATS_PASSWORD` from the container environme
 traffic inside the overlay network is still plaintext — the port is simply no longer published anywhere.
 The server-side `tls { … }` block sits commented out in `nats-server.conf`; the client side turns on with
 `NatsTlsEnabled=true`.
+
+### Token signing keys and DataProtection
+
+OpenIddict needs two certificates — one to sign tokens, one to encrypt them — and ASP.NET Core
+DataProtection needs a key ring. Both used to live inside the container: the development certificate was
+generated into the container user's profile on **every** environment, and the key ring went to
+`LocalApplicationData`. Neither survived a restart, and with more than one replica each replica had its
+own copy, so a token issued by one was rejected by the other.
+
+| Environment | Signing / encryption certificates | DataProtection key ring |
+| --- | --- | --- |
+| `Development`, `Local` | `AddDevelopmentSigningCertificate()` / `AddDevelopmentEncryptionCertificate()` | Docker local stand: shared Redis. IDE run (`Local`): `~/.local/share/Core/DataProtection-Keys` — Redis is not published to the host |
+| `Stage`, `Production` | Real PKCS#12 certificates from docker secrets (or an X509 store entry) | Shared Redis, key ring encrypted with the encryption certificate |
+
+Development certificates are used **only** when the environment is `Development` or `Local`
+(`Identity.WebApi/Extensions.cs`). Any other environment loads real certificates and, if the material is
+missing or unreadable, **fails on startup** with an explicit message instead of silently falling back to a
+throwaway key.
+
+Create the material once per server:
+
+```bash
+bash deploy/generate-identity-certs.sh --create-secrets
+```
+
+It writes two self-signed PKCS#12 bundles with random passwords into `deploy/certs/` (git-ignored) and
+registers four Swarm secrets:
+
+| Secret | Mounted at | Read through |
+| --- | --- | --- |
+| `identity_signing_certificate` | `/run/secrets/identity_signing_certificate` | `OpenIddict__SigningCertificate__Path` |
+| `identity_signing_certificate_password` | `/run/secrets/identity_signing_certificate_password` | `OpenIddict__SigningCertificate__PasswordFile` |
+| `identity_encryption_certificate` | `/run/secrets/identity_encryption_certificate` | `OpenIddict__EncryptionCertificate__Path` |
+| `identity_encryption_certificate_password` | `/run/secrets/identity_encryption_certificate_password` | `OpenIddict__EncryptionCertificate__PasswordFile` |
+
+`docker-compose.app.stage.yml` declares the secrets as `external: true`, so nothing about them is stored
+in git, and `start_stage.sh` aborts before deploying if any of the four is missing. A certificate already
+issued by another CA works just as well: point the same variables at its `.pfx`, or set
+`OpenIddict__SigningCertificate__Thumbprint` (plus `StoreName`/`StoreLocation`) to use the X509 store.
+
+The key ring lives in the Redis that is already part of the infra stack
+(`DataProtection__RedisConnectionString`, `redis:6379` by default, overridable with
+`REDIS_CONNECTION_STRING`). `SetApplicationName("core-app")` is what makes every replica share one ring —
+without it ASP.NET Core derives the name from the content root, which differs per container. On stage the
+ring is additionally encrypted at rest with the encryption certificate
+(`ProtectKeysWithCertificate`/`UnprotectKeysWithAnyCertificate`), so a dump of Redis does not leak the
+master key. `DataProtection__KeysDirectory` is the alternative for stands without Redis — it must point at
+a volume mounted into every replica. In a non-development environment with neither configured, startup
+fails rather than quietly writing keys into the container.
+
+> **Rotation.** Replacing the encryption certificate makes the existing key ring undecryptable, and
+> replacing the signing certificate invalidates issued access tokens. Both wipe active sessions, so rotate
+> them at a moment when that is acceptable.
 
 ## Quick Start
 
@@ -414,7 +468,7 @@ All scripts must be run from the `scripts/` directory. Build scripts accept an o
 
 | Script                | Description                                                                |
 | --------------------- | -------------------------------------------------------------------------- |
-| `deploy_all_stage.sh` | Copies compose files, `nats/`, `postgres/`, `.env.example`, `start_stage.sh`, `ensure-databases.sh` and `project.env`, runs `start_stage.sh`. Never copies `deploy/.env` |
+| `deploy_all_stage.sh` | Copies compose files, `nats/`, `postgres/`, `.env.example`, `start_stage.sh`, `ensure-databases.sh`, `generate-identity-certs.sh` and `project.env`, runs `start_stage.sh`. Never copies `deploy/.env`, the generated certificates or the Swarm secrets |
 
 ### `deploy/` — Docker Swarm
 
@@ -425,6 +479,7 @@ All scripts must be run from the `scripts/` directory. Build scripts accept an o
 | `ensure-databases.sh`               | Creates the `identity`/`users`/`sample` databases if missing. Idempotent; called by both start scripts |
 | `stop.sh`                           | Removes app, infra, and management stacks                      |
 | `switch-gateway-mode.sh <mode>`     | Switches Gateway between `docker`, `local`, or shows `status`  |
+| `generate-identity-certs.sh`        | Issues the OpenIddict signing/encryption PKCS#12 bundles; `--create-secrets` registers them as Swarm secrets |
 | `generate-local-certs.sh`           | Generates local HTTPS certs via mkcert or OpenSSL              |
 | `generate-local-certs.ps1`          | Same as above, PowerShell version for Windows                  |
 
@@ -440,7 +495,7 @@ All scripts must be run from the `scripts/` directory. Build scripts accept an o
 | `docker-compose.infra.dashboard.yml`  | Optional: Traefik dashboard behind basic-auth. Not deployed by default      |
 | `docker-compose.app.yml`              | Gateway, Identity, Identity.WebApi, Users, Sample (base)                    |
 | `docker-compose.app.local.yml`        | Dev credentials for the local Docker stand                                  |
-| `docker-compose.app.stage.yml`        | Stage overrides: public domains, `Stage` environment, credentials from `.env` |
+| `docker-compose.app.stage.yml`        | Stage overrides: public domains, `Stage` environment, credentials from `.env`, OpenIddict certificates from Swarm secrets |
 
 | File                    | Description                                                              |
 | ----------------------- | ------------------------------------------------------------------------ |

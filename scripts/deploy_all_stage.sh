@@ -14,6 +14,7 @@ scp -P "$STAGE_SSH_PORT" \
 ../deploy/docker-compose.app.yml \
 ../deploy/start_stage.sh \
 ../deploy/ensure-databases.sh \
+../deploy/generate-identity-certs.sh \
 ../deploy/.env.example \
 "$STAGE_SSH_HOST:~/dogapp/deploy"
 

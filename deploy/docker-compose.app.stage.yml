@@ -52,11 +52,31 @@ services:
       - ConnectionStrings__DefaultConnection=Host=postgres;Port=5432;Database=identity;Username=${POSTGRES_USER:?POSTGRES_USER is required, see deploy/.env.example};Password=${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required, see deploy/.env.example}
 
   identity-webapi:
+    # Ключевой материал OpenIddict приезжает docker-секретами, а не файлом из образа:
+    # development-сертификаты на Stage не используются (см. Identity.WebApi/Extensions.cs).
+    # Секреты создаются на сервере один раз:
+    #   deploy/generate-identity-certs.sh          # сгенерировать PFX + пароли
+    #   docker secret create identity_signing_certificate           <файл>.pfx
+    #   docker secret create identity_signing_certificate_password  <файл>.pass
+    #   docker secret create identity_encryption_certificate           <файл>.pfx
+    #   docker secret create identity_encryption_certificate_password  <файл>.pass
+    secrets:
+      - identity_signing_certificate
+      - identity_signing_certificate_password
+      - identity_encryption_certificate
+      - identity_encryption_certificate_password
     environment:
       - DOTNET_ENVIRONMENT=Stage
       - NatsUser=${NATS_USER:?NATS_USER is required, see deploy/.env.example}
       - NatsPassword=${NATS_PASSWORD:?NATS_PASSWORD is required, see deploy/.env.example}
       - ConnectionStrings__DefaultConnection=Host=postgres;Port=5432;Database=identity;Username=${POSTGRES_USER:?POSTGRES_USER is required, see deploy/.env.example};Password=${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required, see deploy/.env.example}
+      # Key ring DataProtection — в общем Redis, иначе рестарт/вторая реплика ломают
+      # reference refresh tokens. Redis живёт в стеке infra и наружу не публикуется.
+      - DataProtection__RedisConnectionString=${REDIS_CONNECTION_STRING:-redis:6379}
+      - OpenIddict__SigningCertificate__Path=/run/secrets/identity_signing_certificate
+      - OpenIddict__SigningCertificate__PasswordFile=/run/secrets/identity_signing_certificate_password
+      - OpenIddict__EncryptionCertificate__Path=/run/secrets/identity_encryption_certificate
+      - OpenIddict__EncryptionCertificate__PasswordFile=/run/secrets/identity_encryption_certificate_password
     deploy:
       labels:
         - "traefik.enable=true"
@@ -71,3 +91,16 @@ services:
         - "traefik.http.routers.identity-webapi-secure.entrypoints=websecure"
         - "traefik.http.routers.identity-webapi-secure.tls=true"
         - "traefik.http.services.identity-webapi.loadbalancer.server.port=8080"
+
+# Секреты объявлены external: их содержимое в git не попадает и в compose не указывается.
+# `docker stack deploy` падает с "secret not found", если они не созданы на сервере —
+# это осознанный fail fast: сервис не должен подниматься с эфемерными ключами.
+secrets:
+  identity_signing_certificate:
+    external: true
+  identity_signing_certificate_password:
+    external: true
+  identity_encryption_certificate:
+    external: true
+  identity_encryption_certificate_password:
+    external: true
