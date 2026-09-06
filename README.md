@@ -45,6 +45,92 @@ variables through `${...}` interpolation.
 To rebrand the product, change these values, re-run `create_local_domain.sh` and `generate-local-certs.sh`,
 then rebuild and republish the images under the new prefix.
 
+`project.env` holds **non-secret** naming only. Credentials live in `deploy/.env` — see below.
+
+## Infrastructure credentials (`deploy/.env`)
+
+Nothing in git carries a working password. Infrastructure credentials come from `deploy/.env`, which is
+created from `deploy/.env.example` on the machine that runs the stack and is git-ignored. Both
+`start_local.sh` and `start_stage.sh` source it if it exists.
+
+| Variable | Consumers | Meaning |
+| --- | --- | --- |
+| `POSTGRES_USER`, `POSTGRES_PASSWORD` | `postgres`; `users`, `sample`, `identity`, `identity-webapi` | Database login. Substituted into `ConnectionStrings__DefaultConnection`, so avoid `;`, `'` and `"` in the password |
+| `NATS_USER`, `NATS_PASSWORD` | `nats`; all five services | Bus login. The bus rejects unauthenticated clients |
+| `MINIO_ROOT_USER`, `MINIO_ROOT_PASSWORD` | `minio`; `gateway` | Object storage root credentials |
+| `TRAEFIK_LOG_LEVEL` | `traefik` | `INFO` by default. `DEBUG` logs request headers — never on stage |
+| `TRAEFIK_DASHBOARD_HOST`, `TRAEFIK_DASHBOARD_AUTH` | `traefik` | Only for the optional dashboard override (see below) |
+
+**The local stand needs no `.env`.** Dev defaults live in the local overrides only —
+`docker-compose.infra.local.yml`, `docker-compose.app.local.yml`,
+`docker-compose.management.local.yml` and the `appsettings.Local.json` files. A `deploy/.env`, if present,
+overrides them.
+
+**Stage requires it.** `start_stage.sh` aborts before deploying anything if one of the six credential
+variables is empty, and the stage compose files fail interpolation on their own (`${VAR:?…}`). No stage
+service falls back to a default password.
+
+> Rotating `POSTGRES_PASSWORD` on an existing stand: the official postgres image creates the role only on
+> the **first** start against an empty volume. On a server whose `postgres_data` volume already exists,
+> either set the variables to the values the volume was initialized with, or change the password in the
+> database itself (`ALTER USER`) and in `deploy/.env` together.
+
+### Where each stand gets service credentials
+
+`appsettings.json` is shared with stage, so it holds no logins or passwords — only hosts, ports and
+database names.
+
+| Environment | Source of credentials |
+| --- | --- |
+| Docker local (`Development`) | `deploy/docker-compose.app.local.yml` |
+| IDE run (`Local`) | `appsettings.Local.json` |
+| Stage (`Stage`) | `deploy/docker-compose.app.stage.yml` ← `deploy/.env` |
+
+### What is published to the host
+
+| Stand | Published | Not published |
+| --- | --- | --- |
+| stage | `80/tcp`, `443/tcp`, `443/udp` — Traefik only | postgres, NATS, MinIO, Redis, Portainer, Traefik dashboard: overlay network only |
+| local | Traefik `8181`/`8443`, Portainer `9003`/`8065`, PostgreSQL `6566`, NATS `4223`/`8223`, MinIO `9009`/`9001` | — |
+
+`docker-compose.infra.yml` and `docker-compose.management.yml` declare **no** `ports:` at all; publishing
+exists only in the `*.local.yml` files. Docker Swarm cannot bind a published port to `127.0.0.1` —
+`docker stack deploy` rejects `host_ip`, and `mode: host` listens on every interface of the node — so the
+local stand's infrastructure ports are reachable on every address of the developer machine. Do not run the
+local stand on a host that faces the internet.
+
+### Traefik dashboard
+
+`--api.insecure=true` is used on no stand: it serves the dashboard, and the whole Traefik API, without a
+password. The base compose enables the API (`--api.dashboard=true`) but declares no router, so the
+dashboard is unreachable by default. To open it, set the two dashboard variables and add the optional
+override:
+
+```bash
+htpasswd -nbB admin '<password>'     # paste the whole output line into TRAEFIK_DASHBOARD_AUTH
+docker stack deploy \
+  --compose-file docker-compose.infra.yml \
+  --compose-file docker-compose.infra.stage.yml \
+  --compose-file docker-compose.infra.dashboard.yml infra
+```
+
+The dashboard is then served on `https://${TRAEFIK_DASHBOARD_HOST}` through the normal `websecure`
+entrypoint, behind a basic-auth middleware. Port `8080` is published nowhere.
+
+### NATS authentication
+
+`deploy/nats/nats-server.conf` makes the bus require a login. The file itself holds no secret:
+nats-server expands `$NATS_USER` / `$NATS_PASSWORD` from the container environment. Clients read
+`NatsUser` / `NatsPassword` from configuration
+(`Shared/Shared.Messaging/Messaging/NatsConnectionFactory.cs`); credentials embedded in `NatsUrl`
+(`nats://user:password@host:4222`) work as well. Without them the server answers
+`Authorization Violation`, which the connection factory prints to the log.
+
+**TLS on the bus is not enabled yet.** The stand has no certificate for the internal `nats` name, so
+traffic inside the overlay network is still plaintext — the port is simply no longer published anywhere.
+The server-side `tls { … }` block sits commented out in `nats-server.conf`; the client side turns on with
+`NatsTlsEnabled=true`.
+
 ## Quick Start
 
 ### 1. Set up local domains
@@ -197,8 +283,12 @@ cd scripts
 ./deploy_all_stage.sh
 ```
 
-Copies the compose files, `start_stage.sh` and `project.env` via SCP, then runs `start_stage.sh` on the
-server. Always publish before deploying: stage pulls images from the registry, it does not build them.
+Copies the compose files, `deploy/nats/`, `.env.example`, `start_stage.sh` and `project.env` via SCP, then
+runs `start_stage.sh` on the server. Always publish before deploying: stage pulls images from the registry,
+it does not build them.
+
+`deploy/.env` is deliberately **not** copied: it holds the real infrastructure passwords and is created once
+on the server. Until it exists, `start_stage.sh` refuses to deploy.
 
 ## How to Add a New Vertical
 
@@ -238,13 +328,16 @@ service from scratch.
 | ------------------ | ----------------------------- |
 | Traefik HTTP       | http://localhost:8181         |
 | Traefik HTTPS      | https://localhost:8443        |
-| Traefik Dashboard  | http://localhost:9002         |
+| Traefik Dashboard  | not published — see [Traefik dashboard](#traefik-dashboard) |
 | Portainer UI       | http://localhost:9003         |
 | PostgreSQL         | localhost:6566                |
-| NATS Client        | localhost:4223                |
+| NATS Client        | localhost:4223 (login required) |
 | NATS Monitoring    | http://localhost:8223         |
 | MinIO API          | http://localhost:9009         |
 | MinIO Console      | http://localhost:9001         |
+
+These ports exist on the **local stand only**. The stage stand publishes nothing but `80` and `443`; reach
+its infrastructure through an SSH tunnel or `docker exec`.
 
 ## Deployment Order
 
@@ -277,7 +370,7 @@ All scripts must be run from the `scripts/` directory. Build scripts accept an o
 
 | Script                | Description                                                                |
 | --------------------- | -------------------------------------------------------------------------- |
-| `deploy_all_stage.sh` | Copies compose files, `start_stage.sh` and `project.env`, runs `start_stage.sh` |
+| `deploy_all_stage.sh` | Copies compose files, `nats/`, `.env.example`, `start_stage.sh` and `project.env`, runs `start_stage.sh`. Never copies `deploy/.env` |
 
 ### `deploy/` — Docker Swarm
 
@@ -292,11 +385,19 @@ All scripts must be run from the `scripts/` directory. Build scripts accept an o
 
 ### `deploy/` — Compose Files
 
-| File                              | Description                                      |
-| --------------------------------- | ------------------------------------------------ |
-| `docker-compose.management.yml`   | Portainer                                        |
-| `docker-compose.infra.yml`        | Traefik, PostgreSQL, Redis, NATS, MinIO (base)   |
-| `docker-compose.infra.local.yml`  | Local port overrides for infra                   |
-| `docker-compose.infra.stage.yml`  | Stage overrides (LetsEncrypt, public ports)      |
-| `docker-compose.app.yml`          | Gateway, Identity, Identity.WebApi, Users, Sample (base) |
-| `docker-compose.app.stage.yml`    | Stage overrides (public domains, `Stage` environment) |
+| File                                  | Description                                                                 |
+| ------------------------------------- | --------------------------------------------------------------------------- |
+| `docker-compose.management.yml`       | Portainer. No published ports                                               |
+| `docker-compose.management.local.yml` | Local publishing of the Portainer UI (`9003`, `8065`)                       |
+| `docker-compose.infra.yml`            | Traefik, PostgreSQL, Redis, NATS, MinIO (base). No published ports, no credentials |
+| `docker-compose.infra.local.yml`      | Local publishing of infra ports + dev credentials                           |
+| `docker-compose.infra.stage.yml`      | Stage overrides: LetsEncrypt, `80`/`443` only, credentials required from `.env` |
+| `docker-compose.infra.dashboard.yml`  | Optional: Traefik dashboard behind basic-auth. Not deployed by default      |
+| `docker-compose.app.yml`              | Gateway, Identity, Identity.WebApi, Users, Sample (base)                    |
+| `docker-compose.app.local.yml`        | Dev credentials for the local Docker stand                                  |
+| `docker-compose.app.stage.yml`        | Stage overrides: public domains, `Stage` environment, credentials from `.env` |
+
+| File                    | Description                                                              |
+| ----------------------- | ------------------------------------------------------------------------ |
+| `.env.example`          | Template for `deploy/.env`. Placeholders only, no real values            |
+| `nats/nats-server.conf` | NATS config: authentication via `$NATS_USER` / `$NATS_PASSWORD`, TLS block commented out |

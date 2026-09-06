@@ -1,6 +1,17 @@
+# Stage. Наружу публикуются ТОЛЬКО 80 и 443 (Traefik). Ни postgres, ни nats,
+# ни minio, ни дашборд Traefik портов наружу не получают: в базовом compose
+# `ports:` больше нет, а здесь они не добавляются.
+#
+# Учётные данные обязательны и берутся из окружения (deploy/.env на сервере,
+# см. deploy/.env.example). Если переменная не задана — деплой падает сразу,
+# а не поднимает инфраструктуру с пустым паролем.
 services:
   traefik:
     command:
+      # `command` в override-файле ЗАМЕНЯЕТ список из базового файла целиком,
+      # поэтому он повторён полностью. `--api.insecure=true` здесь нет и быть не должно.
+      - "--log.level=${TRAEFIK_LOG_LEVEL:-INFO}"
+      - "--api.dashboard=true"
       - "--providers.swarm=true"
       - "--providers.swarm.exposedbydefault=false"
       - "--providers.swarm.network=infra_traefik"
@@ -25,9 +36,20 @@ services:
         published: 443
         protocol: udp
         mode: host
-      - target: 8080
-        published: 8080
-        protocol: tcp
-        mode: host
     volumes:
       - ./traefik/acme.json:/letsencrypt/acme.json
+
+  postgres:
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:?POSTGRES_USER is required, see deploy/.env.example}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required, see deploy/.env.example}
+
+  nats:
+    environment:
+      NATS_USER: ${NATS_USER:?NATS_USER is required, see deploy/.env.example}
+      NATS_PASSWORD: ${NATS_PASSWORD:?NATS_PASSWORD is required, see deploy/.env.example}
+
+  minio:
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:?MINIO_ROOT_USER is required, see deploy/.env.example}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:?MINIO_ROOT_PASSWORD is required, see deploy/.env.example}

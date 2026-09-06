@@ -1,3 +1,14 @@
+# Локальный стенд. ЕДИНСТВЕННОЕ место, где инфраструктурные порты публикуются наружу,
+# и единственное место с dev-значениями учётных данных.
+#
+# ОГРАНИЧЕНИЕ SWARM: привязать публикуемый порт к 127.0.0.1 нельзя — `docker stack
+# deploy` отклоняет `host_ip` («Additional property host_ip is not allowed»), а
+# `mode: host` слушает на всех интерфейсах узла. Поэтому эти порты доступны на всех
+# адресах машины разработчика: локальный стенд нельзя поднимать на хосте, который
+# смотрит в интернет. Для stage портов инфраструктуры здесь нет вообще.
+#
+# Любое значение ниже можно переопределить переменной окружения (`${VAR:-default}`),
+# например через deploy/.env.
 services:
   traefik:
     ports:
@@ -13,14 +24,43 @@ services:
         published: 8443
         protocol: udp
         mode: host
-      - target: 8080
-        published: 9002
-        protocol: tcp
-        mode: host
 
   postgres:
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-password}
     ports:
       - target: 5432
         published: 6566
+        protocol: tcp
+        mode: host
+
+  nats:
+    environment:
+      NATS_USER: ${NATS_USER:-core-local}
+      NATS_PASSWORD: ${NATS_PASSWORD:-core-local-dev-password}
+    ports:
+      - target: 4222
+        published: 4223
+        protocol: tcp
+        mode: host
+      # Мониторинг NATS (/varz, /connz) собственной аутентификации не имеет —
+      # публикуется только локальным стендом, на stage наружу не выходит.
+      - target: 8222
+        published: 8223
+        protocol: tcp
+        mode: host
+
+  minio:
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-adminadmin}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-adminadmin}
+    ports:
+      - target: 9000
+        published: 9009
+        protocol: tcp
+        mode: host
+      - target: 9001
+        published: 9001
         protocol: tcp
         mode: host

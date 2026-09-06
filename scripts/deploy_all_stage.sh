@@ -8,11 +8,21 @@ set +a
 scp -P "$STAGE_SSH_PORT" \
 ../deploy/docker-compose.app.stage.yml \
 ../deploy/docker-compose.infra.stage.yml \
+../deploy/docker-compose.infra.dashboard.yml \
 ../deploy/docker-compose.management.yml \
 ../deploy/docker-compose.infra.yml \
 ../deploy/docker-compose.app.yml \
 ../deploy/start_stage.sh \
+../deploy/.env.example \
 "$STAGE_SSH_HOST:~/dogapp/deploy"
+
+# Конфигурация NATS (аутентификация) монтируется в контейнер как ./nats/nats-server.conf.
+# Секретов в ней нет: логин/пароль подставляются из окружения.
+scp -P "$STAGE_SSH_PORT" -r \
+../deploy/nats \
+"$STAGE_SSH_HOST:~/dogapp/deploy"
+
+# deploy/.env НЕ копируется: он создаётся на сервере один раз и содержит реальные пароли.
 
 scp -P "$STAGE_SSH_PORT" \
 ../project.env \

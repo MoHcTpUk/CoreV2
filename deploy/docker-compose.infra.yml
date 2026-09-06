@@ -1,3 +1,11 @@
+# Базовый compose инфраструктуры. Общий для local и stage.
+#
+# ВАЖНО: в этом файле НЕ публикуются порты (`ports:`) и НЕ хранятся учётные данные.
+#   * публикация портов наружу — только в docker-compose.infra.local.yml (локальный стенд);
+#     на stage наружу смотрят исключительно 80/443 Traefik (docker-compose.infra.stage.yml);
+#   * учётные данные приходят из переменных окружения. Локальные dev-значения лежат
+#     в docker-compose.infra.local.yml, значения stage — в deploy/.env на самом сервере
+#     (см. deploy/.env.example и README, раздел «Infrastructure credentials»).
 services:
   traefik:
     image: traefik:v3.6.2
@@ -5,9 +13,11 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock:ro
       - ./certs:/certs:ro
     command:
-      - "--log.level=DEBUG"
-      - "--api.insecure=true"
-      - "--entryPoints.traefik.address=:8080"
+      - "--log.level=${TRAEFIK_LOG_LEVEL:-INFO}"
+      # Дашборд включён, но НЕ имеет роутера: без него API недостижимо снаружи.
+      # `--api.insecure=true` не используется никогда — он отдаёт дашборд без пароля.
+      # Чтобы открыть дашборд, добавьте docker-compose.infra.dashboard.yml (basic-auth).
+      - "--api.dashboard=true"
       - "--providers.swarm=true"
       - "--providers.swarm.exposedbydefault=false"
       - "--providers.swarm.network=infra_traefik"
@@ -27,18 +37,14 @@ services:
   postgres:
     image: postgres:latest
     environment:
-      POSTGRES_USER: user
-      POSTGRES_PASSWORD: password
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
     volumes:
       - postgres_data:/var/lib/postgresql
-    ports:
-      - target: 5432
-        published: 4321
-        mode: host
     networks:
       - traefik
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U user"]
+      test: ["CMD-SHELL", "pg_isready -U \"$$POSTGRES_USER\""]
       interval: 5s
       timeout: 5s
       retries: 5
@@ -58,15 +64,14 @@ services:
 
   nats:
     image: nats:latest
-    command: ["-js", "-m", "8222"]
-    ports:
-      - target: 4222
-        published: 4223
-        mode: host
-      - target: 8222
-        published: 8223
-        mode: host
+    # Аутентификация задана в ./nats/nats-server.conf: сам файл секретов не содержит,
+    # логин/пароль подставляются из $NATS_USER / $NATS_PASSWORD окружения контейнера.
+    command: ["-c", "/etc/nats/nats-server.conf", "-js", "-m", "8222"]
+    environment:
+      NATS_USER: ${NATS_USER}
+      NATS_PASSWORD: ${NATS_PASSWORD}
     volumes:
+      - ./nats/nats-server.conf:/etc/nats/nats-server.conf:ro
       - nats_data:/data
     deploy:
       replicas: 1
@@ -77,16 +82,9 @@ services:
 
   minio:
     image: minio/minio:latest
-    ports:
-      - target: 9000
-        published: 9009
-        mode: host
-      - target: 9001
-        published: 9001
-        mode: host
     environment:
-      MINIO_ROOT_USER: adminadmin
-      MINIO_ROOT_PASSWORD: adminadmin
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
     volumes:
       - minio_data:/data
     command: server /data --console-address ":9001"

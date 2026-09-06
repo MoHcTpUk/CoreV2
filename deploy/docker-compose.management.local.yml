@@ -1,0 +1,13 @@
+# Локальный стенд: публикация UI Portainer. На stage портов у Portainer нет.
+# Про невозможность привязки к 127.0.0.1 в Swarm см. docker-compose.infra.local.yml.
+services:
+  portainer:
+    ports:
+      - target: 9000
+        published: 9003
+        protocol: tcp
+        mode: host
+      - target: 8000
+        published: 8065
+        protocol: tcp
+        mode: host

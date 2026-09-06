@@ -1,0 +1,40 @@
+# Локальный стенд, приложение. ЕДИНСТВЕННОЕ место с dev-значениями учётных данных
+# для сервисов в docker (профиль Development).
+#
+# appsettings.json больше не содержит ни логинов, ни паролей: он общий со stage.
+# Значения ниже совпадают с dev-значениями в docker-compose.infra.local.yml и
+# перебиваются переменными окружения (например через deploy/.env).
+#
+# Для запуска сервисов из IDE (профиль Local) те же dev-значения лежат
+# в appsettings.Local.json.
+services:
+  gateway:
+    environment:
+      - NatsUser=${NATS_USER:-core-local}
+      - NatsPassword=${NATS_PASSWORD:-core-local-dev-password}
+      - Minio__AccessKey=${MINIO_ROOT_USER:-adminadmin}
+      - Minio__SecretKey=${MINIO_ROOT_PASSWORD:-adminadmin}
+
+  users:
+    environment:
+      - NatsUser=${NATS_USER:-core-local}
+      - NatsPassword=${NATS_PASSWORD:-core-local-dev-password}
+      - ConnectionStrings__DefaultConnection=Host=postgres;Port=5432;Database=users;Username=${POSTGRES_USER:-user};Password=${POSTGRES_PASSWORD:-password}
+
+  sample:
+    environment:
+      - NatsUser=${NATS_USER:-core-local}
+      - NatsPassword=${NATS_PASSWORD:-core-local-dev-password}
+      - ConnectionStrings__DefaultConnection=Host=postgres;Port=5432;Database=sample;Username=${POSTGRES_USER:-user};Password=${POSTGRES_PASSWORD:-password}
+
+  identity:
+    environment:
+      - NatsUser=${NATS_USER:-core-local}
+      - NatsPassword=${NATS_PASSWORD:-core-local-dev-password}
+      - ConnectionStrings__DefaultConnection=Host=postgres;Port=5432;Database=identity;Username=${POSTGRES_USER:-user};Password=${POSTGRES_PASSWORD:-password}
+
+  identity-webapi:
+    environment:
+      - NatsUser=${NATS_USER:-core-local}
+      - NatsPassword=${NATS_PASSWORD:-core-local-dev-password}
+      - ConnectionStrings__DefaultConnection=Host=postgres;Port=5432;Database=identity;Username=${POSTGRES_USER:-user};Password=${POSTGRES_PASSWORD:-password}

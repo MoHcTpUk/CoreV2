@@ -38,7 +38,7 @@ switch_to_docker() {
     # Проверить, запущен ли Docker сервис
     if ! docker service ls --format '{{.Name}}' | grep -q "^${GATEWAY_SERVICE}$"; then
         cd "$SCRIPT_DIR"
-        docker stack deploy -c docker-compose.app.yml app
+        docker stack deploy -c docker-compose.app.yml -c docker-compose.app.local.yml app
     fi
     
     echo "✅ Переключено на Docker режим"

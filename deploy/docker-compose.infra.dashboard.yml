@@ -1,0 +1,36 @@
+# ОПЦИОНАЛЬНЫЙ override: дашборд Traefik за basic-auth.
+#
+# По умолчанию НЕ подключается ни к одному стенду: `--api.dashboard=true` в базовом
+# compose включает API, но роутера к нему нет, значит дашборд недостижим. Этот файл
+# добавляет роутер и middleware basic-auth. Порт 8080 наружу не публикуется — дашборд
+# ходит через обычный websecure (443).
+#
+# Использование (stage):
+#   1. в deploy/.env задать TRAEFIK_DASHBOARD_HOST и TRAEFIK_DASHBOARD_AUTH;
+#      хеш генерируется так (значение НЕ коммитить):
+#        htpasswd -nbB admin '<пароль>'
+#   2. добавить файл последним в docker stack deploy:
+#        docker stack deploy \
+#          --compose-file docker-compose.infra.yml \
+#          --compose-file docker-compose.infra.stage.yml \
+#          --compose-file docker-compose.infra.dashboard.yml infra
+#
+# Локально: закомментировать строку с tls.certresolver (letsencrypt на localhost не
+# работает, сертификат берётся из ./certs через file-provider) и добавить
+# TRAEFIK_DASHBOARD_HOST в /etc/hosts.
+services:
+  traefik:
+    deploy:
+      labels:
+        - "traefik.enable=true"
+        - "traefik.http.routers.traefik-dashboard.rule=Host(`${TRAEFIK_DASHBOARD_HOST:?TRAEFIK_DASHBOARD_HOST is required, see deploy/.env.example}`)"
+        - "traefik.http.routers.traefik-dashboard.entrypoints=websecure"
+        - "traefik.http.routers.traefik-dashboard.tls=true"
+        - "traefik.http.routers.traefik-dashboard.tls.certresolver=${TRAEFIK_DASHBOARD_CERTRESOLVER:-letsencrypt}"
+        - "traefik.http.routers.traefik-dashboard.service=api@internal"
+        - "traefik.http.routers.traefik-dashboard.middlewares=traefik-dashboard-auth"
+        # Пароль приходит из окружения (bcrypt-хеш htpasswd), в git его нет.
+        - "traefik.http.middlewares.traefik-dashboard-auth.basicauth.users=${TRAEFIK_DASHBOARD_AUTH:?TRAEFIK_DASHBOARD_AUTH is required, see deploy/.env.example}"
+        # Swarm-провайдеру нужен порт у сервиса, иначе он не соберёт конфигурацию роутера.
+        # Реального трафика через этот loadbalancer нет: роутер смотрит на api@internal.
+        - "traefik.http.services.traefik-dashboard-noop.loadbalancer.server.port=8080"

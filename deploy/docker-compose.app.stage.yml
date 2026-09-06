@@ -1,7 +1,19 @@
+# Stage-оверрайд приложения.
+#
+# Учётные данные инфраструктуры НЕ лежат в appsettings*.json — они приходят сюда
+# из окружения (deploy/.env на сервере, шаблон deploy/.env.example) и должны
+# совпадать со значениями в docker-compose.infra.stage.yml.
+#
+# Имена переменных .NET: `__` = разделитель уровней конфигурации,
+# `NatsUser` / `NatsPassword` — плоские ключи (Shared.Messaging/NatsConnectionFactory.cs).
 services:
   gateway:
     environment:
       - ASPNETCORE_ENVIRONMENT=Stage
+      - NatsUser=${NATS_USER:?NATS_USER is required, see deploy/.env.example}
+      - NatsPassword=${NATS_PASSWORD:?NATS_PASSWORD is required, see deploy/.env.example}
+      - Minio__AccessKey=${MINIO_ROOT_USER:?MINIO_ROOT_USER is required, see deploy/.env.example}
+      - Minio__SecretKey=${MINIO_ROOT_PASSWORD:?MINIO_ROOT_PASSWORD is required, see deploy/.env.example}
     deploy:
       labels:
         - "traefik.enable=true"
@@ -21,18 +33,30 @@ services:
   users:
     environment:
       - DOTNET_ENVIRONMENT=Stage
+      - NatsUser=${NATS_USER:?NATS_USER is required, see deploy/.env.example}
+      - NatsPassword=${NATS_PASSWORD:?NATS_PASSWORD is required, see deploy/.env.example}
+      - ConnectionStrings__DefaultConnection=Host=postgres;Port=5432;Database=users;Username=${POSTGRES_USER:?POSTGRES_USER is required, see deploy/.env.example};Password=${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required, see deploy/.env.example}
 
   sample:
     environment:
       - DOTNET_ENVIRONMENT=Stage
+      - NatsUser=${NATS_USER:?NATS_USER is required, see deploy/.env.example}
+      - NatsPassword=${NATS_PASSWORD:?NATS_PASSWORD is required, see deploy/.env.example}
+      - ConnectionStrings__DefaultConnection=Host=postgres;Port=5432;Database=sample;Username=${POSTGRES_USER:?POSTGRES_USER is required, see deploy/.env.example};Password=${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required, see deploy/.env.example}
 
   identity:
     environment:
       - DOTNET_ENVIRONMENT=Stage
+      - NatsUser=${NATS_USER:?NATS_USER is required, see deploy/.env.example}
+      - NatsPassword=${NATS_PASSWORD:?NATS_PASSWORD is required, see deploy/.env.example}
+      - ConnectionStrings__DefaultConnection=Host=postgres;Port=5432;Database=identity;Username=${POSTGRES_USER:?POSTGRES_USER is required, see deploy/.env.example};Password=${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required, see deploy/.env.example}
 
   identity-webapi:
     environment:
       - DOTNET_ENVIRONMENT=Stage
+      - NatsUser=${NATS_USER:?NATS_USER is required, see deploy/.env.example}
+      - NatsPassword=${NATS_PASSWORD:?NATS_PASSWORD is required, see deploy/.env.example}
+      - ConnectionStrings__DefaultConnection=Host=postgres;Port=5432;Database=identity;Username=${POSTGRES_USER:?POSTGRES_USER is required, see deploy/.env.example};Password=${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required, see deploy/.env.example}
     deploy:
       labels:
         - "traefik.enable=true"
