@@ -41,6 +41,11 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
     volumes:
       - postgres_data:/var/lib/postgresql
+      # Создание баз identity/users/sample (см. postgres/initdb/10-create-databases.sql).
+      # Entrypoint выполняет содержимое каталога ТОЛЬКО при инициализации пустого тома,
+      # поэтому на уже существующем postgres_data тот же файл прогоняется вручную —
+      # это делает deploy/ensure-databases.sh из start_local.sh / start_stage.sh.
+      - ./postgres/initdb:/docker-entrypoint-initdb.d:ro
     networks:
       - traefik
     healthcheck:

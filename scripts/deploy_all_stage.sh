@@ -13,6 +13,7 @@ scp -P "$STAGE_SSH_PORT" \
 ../deploy/docker-compose.infra.yml \
 ../deploy/docker-compose.app.yml \
 ../deploy/start_stage.sh \
+../deploy/ensure-databases.sh \
 ../deploy/.env.example \
 "$STAGE_SSH_HOST:~/dogapp/deploy"
 
@@ -20,6 +21,13 @@ scp -P "$STAGE_SSH_PORT" \
 # Секретов в ней нет: логин/пароль подставляются из окружения.
 scp -P "$STAGE_SSH_PORT" -r \
 ../deploy/nats \
+"$STAGE_SSH_HOST:~/dogapp/deploy"
+
+# Init-скрипт создания баз. Монтируется в postgres как ./postgres/initdb ->
+# /docker-entrypoint-initdb.d, поэтому файл обязан лежать на сервере рядом с compose;
+# его же прогоняет ensure-databases.sh. Секретов не содержит.
+scp -P "$STAGE_SSH_PORT" -r \
+../deploy/postgres \
 "$STAGE_SSH_HOST:~/dogapp/deploy"
 
 # deploy/.env НЕ копируется: он создаётся на сервере один раз и содержит реальные пароли.
