@@ -1,6 +1,7 @@
 using Identity.WebApi;
 using Identity.WebApi.Middleware;
 using Shared.Api.Filters;
+using Shared.Api.RateLimiting;
 using Environments = Shared.Environments;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -13,6 +14,7 @@ builder.Services.AddEndpointsApiExplorer();
 
 builder.Services.AddControllers(options => { options.Filters.Add<RemoteProblemDetailsExceptionFilter>(); });
 builder.Services.AddIdentityWebApi(builder.Configuration, builder.Environment);
+builder.Services.AddAuthRateLimiting(builder.Configuration);
 
 builder.Services.AddHostedService<AppInitializer>();
 
@@ -46,6 +48,10 @@ if (builder.Environment.IsDevelopment() || builder.Environment.EnvironmentName =
 
 var app = builder.Build();
 
+// First in the pipeline, for the same reason as in the gateway: the limiter partitions on the client
+// address and must not see Traefik's.
+app.UseTrustedProxy();
+
 if (app.Environment.IsProduction()) app.UseHttpsRedirection();
 
 if (app.Environment.IsDevelopment() || app.Environment.EnvironmentName == Environments.Local)
@@ -54,6 +60,14 @@ if (app.Environment.IsDevelopment() || app.Environment.EnvironmentName == Enviro
 // Map OpenAPI before authentication middleware to ensure it's accessible
 if (app.Environment.IsDevelopment() || app.Environment.EnvironmentName == Environments.Local)
     app.MapOpenApi().AllowAnonymous();
+
+// The token subject has to be read from the form before the limiter runs, because a partition key is
+// chosen synchronously and cannot read the body itself.
+app.UseTokenSubjectPartitionKey("/connect/token");
+
+// Before the verification middleware: a guess must be counted against the limit even when the request
+// never reaches the token controller.
+app.UseRateLimiter();
 
 // Allows issuing tokens from verification flows by translating custom request payloads
 // to an internal /connect/token password grant flow within the same HTTP request.

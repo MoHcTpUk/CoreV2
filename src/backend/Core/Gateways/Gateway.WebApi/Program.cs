@@ -4,6 +4,7 @@ using Sample.Api;
 using Users.Api;
 using Environments = Shared.Environments;
 using Shared.Api.Filters;
+using Shared.Api.RateLimiting;
 using Microsoft.AspNetCore.Mvc;
 using OpenIddict.Validation.AspNetCore;
 
@@ -53,6 +54,8 @@ builder.Services.AddOpenIddict()
 
 builder.Services.AddAuthorization();
 
+builder.Services.AddAuthRateLimiting(builder.Configuration);
+
 builder.Services.AddUsersApi(builder.Configuration);
 builder.Services.AddSampleApi(builder.Configuration);
 builder.Services.AddIdentityApi(builder.Configuration);
@@ -87,6 +90,10 @@ if (builder.Environment.IsDevelopment() || builder.Environment.EnvironmentName =
 
 var app = builder.Build();
 
+// First in the pipeline: everything downstream that reads the client address — the rate limiter above
+// all — has to see the value X-Forwarded-For carries rather than Traefik's own.
+app.UseTrustedProxy();
+
 if (app.Environment.IsProduction()) app.UseHttpsRedirection();
 
 if (app.Environment.IsDevelopment() || app.Environment.EnvironmentName == Environments.Local)
@@ -98,6 +105,10 @@ if (app.Environment.IsDevelopment() || app.Environment.EnvironmentName == Enviro
 {
     app.MapOpenApi().AllowAnonymous();
 }
+
+// The e-mail partition key has to be read from the request body, so it is captured before the limiter runs.
+app.UseAuthRequestEmailPartitionKey("/Users/CreateAuthRequest");
+app.UseRateLimiter();
 
 app.MapGet("/test", () => "Hello from Gateway!").AllowAnonymous();
 

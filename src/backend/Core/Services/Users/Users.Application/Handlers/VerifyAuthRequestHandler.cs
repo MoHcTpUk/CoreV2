@@ -1,9 +1,14 @@
+using System.Security.Cryptography;
+using System.Text;
 using AutoMapper;
 using Identity.Contracts.Commands;
 using Identity.Contracts.Services;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
 using Shared.Messaging.Interfaces;
 using Users.Application.Interfaces;
+using Users.Application.Options;
+using Users.Application.Security;
 using Users.Contracts.Commands.AuthRequest;
 using Users.Contracts.Dtos;
 using Users.Domain.Aggregates;
@@ -14,49 +19,99 @@ public class VerifyAuthRequestHandler(
     IAuthRequestRepository authRequestRepository,
     IUserRepository userRepository,
     IIdentityService identityService,
+    IOptions<AuthRequestOptions> options,
+    TimeProvider timeProvider,
     IMapper mapper
 )
     : ICommandHandler<VerifyAuthRequestCommand, UserDto>
 {
-    private const int TemporaryPasswordLength = 20;
+    /// <summary>
+    ///     Deliberately identical for "no such request", "expired" and "wrong code": telling those apart
+    ///     would turn the endpoint into an oracle for guessing request identifiers.
+    /// </summary>
+    private const string InvalidCodeMessage = "The verification code is invalid or has expired.";
+
+    /// <summary>
+    ///     The lock-out message is distinct because reaching it requires having already spent the whole
+    ///     attempt budget on this request, so it reveals nothing new — and the legitimate user has to be
+    ///     told to ask for a fresh code.
+    /// </summary>
+    private const string LockedOutMessage =
+        "Too many failed verification attempts. Request a new verification code.";
 
     public async Task<UserDto> Handle(VerifyAuthRequestCommand request,
         CancellationToken cancellationToken)
     {
+        var settings = options.Value;
+
         var authRequest = await authRequestRepository.AsQueryable()
             .FirstOrDefaultAsync(item => item.Id == request.Id, cancellationToken);
 
-        if (authRequest is null || !authRequest.ActivationCode.Equals(request.VerificationCode))
-            throw new Exception("Invalid verification code");
+        if (authRequest is null) throw new UnauthorizedAccessException(InvalidCodeMessage);
+
+        // A request that ran out of attempts or out of time is worthless: drop it so the row cannot be
+        // probed any further, then answer with the same message an unknown identifier would get.
+        if (authRequest.IsOutOfAttempts(settings.MaxVerificationAttempts) ||
+            authRequest.IsExpired(timeProvider.GetUtcNow()))
+        {
+            await ConsumeAsync(authRequest);
+            throw new UnauthorizedAccessException(
+                authRequest.IsOutOfAttempts(settings.MaxVerificationAttempts)
+                    ? LockedOutMessage
+                    : InvalidCodeMessage);
+        }
+
+        if (!VerificationCodeMatches(authRequest.ActivationCode, request.VerificationCode))
+        {
+            authRequest.RegisterFailedAttempt();
+
+            if (authRequest.IsOutOfAttempts(settings.MaxVerificationAttempts))
+            {
+                await ConsumeAsync(authRequest);
+                throw new UnauthorizedAccessException(LockedOutMessage);
+            }
+
+            authRequestRepository.UpdateAsync([authRequest]);
+            await authRequestRepository.SaveChangesAsync();
+
+            throw new UnauthorizedAccessException(InvalidCodeMessage);
+        }
+
+        // Single use: the request is consumed the moment its code matches, before any credential is
+        // issued, so the same code can never be replayed — not even if a later step fails.
+        await ConsumeAsync(authRequest);
 
         var existingUser = await userRepository.AsQueryable()
             .FirstOrDefaultAsync(item => item.Email == authRequest.Email, cancellationToken);
 
-        if (existingUser is not null) return await ProcessExistUser(existingUser, authRequest, cancellationToken);
+        if (existingUser is not null) return await ProcessExistUser(existingUser, authRequest.Email);
 
-        return await ProcessNewUser(authRequest, cancellationToken);
+        return await ProcessNewUser(authRequest.Email, cancellationToken);
     }
 
-    private async Task<UserDto> ProcessNewUser(AuthRequest authRequest, CancellationToken cancellationToken)
+    private async Task ConsumeAsync(AuthRequest authRequest)
     {
-        var username = authRequest.Email.Split('@')[0].ToLowerInvariant();
-        var temporaryPassword = GenerateTemporaryPassword();
+        authRequestRepository.DeleteAsync([authRequest]);
+        await authRequestRepository.SaveChangesAsync();
+    }
+
+    private async Task<UserDto> ProcessNewUser(string email, CancellationToken cancellationToken)
+    {
+        var username = email.Split('@')[0].ToLowerInvariant();
+        var temporaryPassword = TemporaryPasswordGenerator.Generate(options.Value.TemporaryPasswordLength);
 
         var createUserCommand = new CreateIdentityUserCommand
         {
-            Email = authRequest.Email,
+            Email = email,
             UserName = username,
             Password = temporaryPassword
         };
 
         var identityUserId = await identityService.CreateUserAsync(createUserCommand);
 
-        authRequestRepository.DeleteAsync([authRequest]);
-        await authRequestRepository.SaveChangesAsync();
-
         var newUser = new UserAggregate
         {
-            Email = authRequest.Email,
+            Email = email,
             UserName = username,
             Id = identityUserId
         };
@@ -70,14 +125,13 @@ public class VerifyAuthRequestHandler(
         return userDto;
     }
 
-    private async Task<UserDto> ProcessExistUser(UserAggregate existingUser, AuthRequest authRequest,
-        CancellationToken cancellationToken)
+    private async Task<UserDto> ProcessExistUser(UserAggregate existingUser, string email)
     {
-        var temporaryPassword = GenerateTemporaryPassword();
+        var temporaryPassword = TemporaryPasswordGenerator.Generate(options.Value.TemporaryPasswordLength);
 
         var updatePasswordCommand = new SetIdentityUserPasswordCommand
         {
-            Email = authRequest.Email,
+            Email = email,
             Password = temporaryPassword
         };
 
@@ -86,39 +140,25 @@ public class VerifyAuthRequestHandler(
         if (!updatePasswordResult.Success)
             throw new Exception(updatePasswordResult.ErrorMessage ?? "Unable to update user password.");
 
-        authRequestRepository.DeleteAsync([authRequest]);
-        await authRequestRepository.SaveChangesAsync();
-
         var userDto = mapper.Map<UserDto>(existingUser);
         userDto.Password = temporaryPassword;
 
         return userDto;
     }
 
-    private static string GenerateTemporaryPassword()
+    /// <summary>
+    ///     Compares the two codes in time independent of their contents. Both sides are hashed first, so the
+    ///     buffers handed to <see cref="CryptographicOperations.FixedTimeEquals" /> are always the same
+    ///     fixed length and a wrong-length guess cannot be told apart from a wrong-value one.
+    /// </summary>
+    private static bool VerificationCodeMatches(string expected, string? provided)
     {
-        const string uppercase = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
-        const string lowercase = "abcdefghijklmnopqrstuvwxyz";
-        const string digits = "0123456789";
-        const string special = "!@#$%^&*()-_=+[]{}|;:,.<>?";
-        const string allChars = uppercase + lowercase + digits + special;
+        Span<byte> expectedHash = stackalloc byte[SHA256.HashSizeInBytes];
+        Span<byte> providedHash = stackalloc byte[SHA256.HashSizeInBytes];
 
-        var random = new Random();
-        var password = new char[TemporaryPasswordLength];
+        SHA256.HashData(Encoding.UTF8.GetBytes(expected), expectedHash);
+        SHA256.HashData(Encoding.UTF8.GetBytes(provided ?? string.Empty), providedHash);
 
-        password[0] = uppercase[random.Next(uppercase.Length)];
-        password[1] = lowercase[random.Next(lowercase.Length)];
-        password[2] = digits[random.Next(digits.Length)];
-        password[3] = special[random.Next(special.Length)];
-
-        for (var i = 4; i < TemporaryPasswordLength; i++) password[i] = allChars[random.Next(allChars.Length)];
-
-        for (var i = TemporaryPasswordLength - 1; i > 0; i--)
-        {
-            var j = random.Next(i + 1);
-            (password[i], password[j]) = (password[j], password[i]);
-        }
-
-        return new string(password);
+        return CryptographicOperations.FixedTimeEquals(expectedHash, providedHash);
     }
 }

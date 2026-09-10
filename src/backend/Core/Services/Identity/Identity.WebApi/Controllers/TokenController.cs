@@ -4,8 +4,10 @@ using Identity.Domain.Aggregates;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.RateLimiting;
 using OpenIddict.Abstractions;
 using OpenIddict.Server.AspNetCore;
+using Shared.Api.RateLimiting;
 
 namespace Identity.WebApi.Controllers;
 
@@ -19,6 +21,7 @@ public class TokenController(
 
     [HttpPost("token")]
     [AllowAnonymous]
+    [EnableRateLimiting(RateLimitingExtensions.TokenPolicy)]
     [Produces("application/json")]
 
     public async Task<IActionResult> Exchange(CancellationToken cancellationToken)
