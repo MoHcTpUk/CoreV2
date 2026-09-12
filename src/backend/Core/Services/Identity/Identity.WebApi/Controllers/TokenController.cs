@@ -72,13 +72,21 @@ public class TokenController(
     ///     Redeems the single-use ticket minted for a verified authentication request. The ticket is the
     ///     whole credential: it names the user, it is spent here, and it stops working within a minute of
     ///     being issued, so there is no password to present and none to intercept.
+    ///     <para>
+    ///         The ticket is read only from <c>HttpContext.Items</c>, where
+    ///         <see cref="Middleware.VerifyAuthToTokenMiddleware" /> puts it after a successful verification.
+    ///         It is never taken from the OAuth request: a caller that posts this grant itself, with or without
+    ///         a ticket field, has nothing in <c>Items</c> and gets <c>invalid_grant</c>.
+    ///     </para>
     /// </summary>
     private async Task<IActionResult> ExchangeAuthRequestAsync(OpenIddictRequest request,
         CancellationToken cancellationToken)
     {
-        var ticket = (string?)request.GetParameter(AuthRequestGrant.TicketParameter);
+        var ticket = HttpContext.Items[AuthRequestGrant.TicketItemKey] as string;
 
-        var user = await authTicketService.RedeemAsync(ticket ?? string.Empty, cancellationToken);
+        var user = string.IsNullOrEmpty(ticket)
+            ? null
+            : await authTicketService.RedeemAsync(ticket, cancellationToken);
 
         if (user is null)
         {

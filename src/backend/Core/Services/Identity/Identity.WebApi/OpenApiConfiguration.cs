@@ -61,7 +61,7 @@ public static class OpenApiConfiguration
                     new OpenApiOperation
                     {
                         Summary = "OAuth2 Token Endpoint",
-                        Description = "Obtain OAuth2 access token. Send 'id' and 'verificationCode' to complete an e-mail verification, or use grant_type=password / grant_type=refresh_token directly. The 'auth_request' grant is internal: it is produced by the verification middleware and carries a single-use ticket, so callers never send it themselves.",
+                        Description = "Obtain OAuth2 access token. Send 'id' and 'verificationCode' to complete an e-mail verification, or use grant_type=password / grant_type=refresh_token directly. The 'auth_request' grant is internal-only and cannot be invoked externally: the verification middleware produces it and passes the single-use ticket to the token endpoint as server-side request state, never as a form field, so a request that sends grant_type=auth_request itself is rejected with invalid_grant.",
                         Tags = new List<OpenApiTag> { new() { Name = "Authentication" } },
                         RequestBody = new OpenApiRequestBody
                         {
@@ -83,7 +83,7 @@ public static class OpenApiConfiguration
                                                     new OpenApiSchema
                                                     {
                                                         Type = "string",
-                                                        Description = "Grant type. Supported values: 'password' or 'refresh_token'. Omit it when sending 'id' and 'verificationCode': the verification middleware rewrites the request as the internal 'auth_request' grant.",
+                                                        Description = "Grant type. Supported values: 'password' or 'refresh_token'. Omit it when sending 'id' and 'verificationCode': the verification middleware rewrites the request as the internal 'auth_request' grant, which cannot be requested directly.",
                                                         Enum = new List<IOpenApiAny>
                                                         {
                                                             new OpenApiString("password"),

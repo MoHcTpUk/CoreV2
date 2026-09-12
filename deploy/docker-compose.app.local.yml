@@ -8,13 +8,14 @@
 # Для запуска сервисов из IDE (профиль Local) те же dev-значения лежат
 # в appsettings.Local.json.
 #
-# Каталог ./certs/nats монтируется каждому сервису только ради ca.pem: клиент NATS
-# проверяет по нему сертификат шины (TLS включён в nats-server.conf). Сертификаты
-# создаёт deploy/generate-nats-certs.sh, start_local.sh вызывает его сам.
+# Каждому сервису монтируется один файл — ./certs/nats/ca.pem: клиент NATS проверяет
+# по нему сертификат шины (TLS включён в nats-server.conf). Каталог целиком не монтируется:
+# ключ сервера nats-key.pem нужен только контейнеру nats. Сертификаты создаёт
+# deploy/generate-nats-certs.sh, start_local.sh вызывает его сам.
 services:
   gateway:
     volumes:
-      - ./certs/nats:/etc/nats/certs:ro
+      - ./certs/nats/ca.pem:/etc/nats/certs/ca.pem:ro
     environment:
       - NatsUser=${NATS_USER:-core-local}
       - NatsPassword=${NATS_PASSWORD:-core-local-dev-password}
@@ -23,7 +24,7 @@ services:
 
   users:
     volumes:
-      - ./certs/nats:/etc/nats/certs:ro
+      - ./certs/nats/ca.pem:/etc/nats/certs/ca.pem:ro
     environment:
       - NatsUser=${NATS_USER:-core-local}
       - NatsPassword=${NATS_PASSWORD:-core-local-dev-password}
@@ -31,7 +32,7 @@ services:
 
   sample:
     volumes:
-      - ./certs/nats:/etc/nats/certs:ro
+      - ./certs/nats/ca.pem:/etc/nats/certs/ca.pem:ro
     environment:
       - NatsUser=${NATS_USER:-core-local}
       - NatsPassword=${NATS_PASSWORD:-core-local-dev-password}
@@ -39,7 +40,7 @@ services:
 
   identity:
     volumes:
-      - ./certs/nats:/etc/nats/certs:ro
+      - ./certs/nats/ca.pem:/etc/nats/certs/ca.pem:ro
     environment:
       - NatsUser=${NATS_USER:-core-local}
       - NatsPassword=${NATS_PASSWORD:-core-local-dev-password}
@@ -47,7 +48,7 @@ services:
 
   identity-webapi:
     volumes:
-      - ./certs/nats:/etc/nats/certs:ro
+      - ./certs/nats/ca.pem:/etc/nats/certs/ca.pem:ro
     environment:
       - NatsUser=${NATS_USER:-core-local}
       - NatsPassword=${NATS_PASSWORD:-core-local-dev-password}

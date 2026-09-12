@@ -78,9 +78,9 @@ services:
       NATS_PASSWORD: ${NATS_PASSWORD}
     volumes:
       - ./nats/nats-server.conf:/etc/nats/nats-server.conf:ro
-      # Сертификат сервера и корневой сертификат стенда. Создаются один раз скриптом
-      # deploy/generate-nats-certs.sh, в git не хранятся. Тот же каталог монтируется
-      # сервисам приложения — им нужен только ca.pem.
+      # Сертификат сервера, его ключ (0600) и корневой сертификат стенда. Создаются один раз
+      # скриптом deploy/generate-nats-certs.sh, в git не хранятся. Закрытого ключа CA в каталоге
+      # нет. Сервисам приложения монтируется только ca.pem, а не этот каталог.
       - ./certs/nats:/etc/nats/certs:ro
       - nats_data:/data
     deploy:

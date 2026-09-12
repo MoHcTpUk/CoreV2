@@ -18,6 +18,11 @@ namespace Identity.WebApi.Middleware;
 ///         nothing that could be replayed against the account, and nothing that survives past a minute,
 ///         ever travels over the message bus.
 ///     </para>
+///     <para>
+///         The ticket reaches the token controller only through <c>HttpContext.Items</c>
+///         (<see cref="AuthRequestGrant.TicketItemKey" />). The rewritten form carries the grant type, scope
+///         and client id and nothing secret, so the request OpenIddict extracts and logs holds no credential.
+///     </para>
 /// </summary>
 public sealed class VerifyAuthToTokenMiddleware(RequestDelegate next)
 {
@@ -74,7 +79,6 @@ public sealed class VerifyAuthToTokenMiddleware(RequestDelegate next)
             return;
         }
 
-        string ticket;
         try
         {
             var command = new VerifyAuthRequestCommand
@@ -84,7 +88,10 @@ public sealed class VerifyAuthToTokenMiddleware(RequestDelegate next)
             };
 
             var verified = await userService.VerifyAuthRequest(command);
-            ticket = verified.Ticket;
+
+            // Server-side per-request state, not a form field: OpenIddict would log the field verbatim, and
+            // anything that can travel in the form can also be sent to /connect/token by an outside caller.
+            context.Items[AuthRequestGrant.TicketItemKey] = verified.Ticket;
         }
         catch (RemoteProblemDetailsException ex)
         {
@@ -104,10 +111,10 @@ public sealed class VerifyAuthToTokenMiddleware(RequestDelegate next)
             OpenIddictConstants.Scopes.OfflineAccess
         });
 
+        // No ticket here: the token controller takes it from HttpContext.Items (see above).
         var form = new Dictionary<string, string?>
         {
             ["grant_type"] = AuthRequestGrant.GrantType,
-            [AuthRequestGrant.TicketParameter] = ticket,
             ["scope"] = scope,
             ["client_id"] = configuration["OpenIddict:ClientId"]
         };

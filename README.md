@@ -142,6 +142,13 @@ falls back to a private CA created by `openssl` otherwise. Either way the root l
 `src/backend/Core/.run/*.run.xml`. Do not count on the system trust store: even a `mkcert` root that macOS
 trusts is not honoured by .NET's default validation here.
 
+Only the `nats` container mounts the whole `deploy/certs/nats/` directory; the application services mount the
+single file `ca.pem`, so no private key reaches them. The server key `nats-key.pem` is `0600` (the `nats`
+image runs as root). No CA private key is kept in `deploy/certs/nats/`: `mkcert` keeps its own under
+`mkcert -CAROOT`, and the `openssl` fallback creates its CA in a temporary directory and deletes the key right
+after signing. As a consequence a reissue on the `openssl` branch creates a new CA, so restart `nats` and every
+application service after `--force` — they keep the previous `ca.pem` until they restart.
+
 `start_local.sh` runs the script for you. On stage the certificate is issued **on the server** —
 `deploy_all_stage.sh` copies the script but never the key material, and `start_stage.sh` refuses to deploy
 when `deploy/certs/nats/` is empty.
@@ -276,8 +283,10 @@ Behind that endpoint the exchange never involves a password. `VerifyAuthToTokenM
 the `users` service, which verifies it and asks Identity for a **single-use ticket**: bound to one user,
 valid for at most 60 seconds, stored only as a SHA-256 digest, and spent by the first redemption. The
 middleware then rewrites the request as the internal `auth_request` grant and the token controller redeems
-the ticket. Accounts opened this way have no password at all, so logging in a second time cannot invalidate
-the first session.
+the ticket. The ticket reaches the controller only through server-side request state (`HttpContext.Items`),
+never as a form field: it does not appear in OpenIddict's request log, and a caller that posts
+`grant_type=auth_request` to `/connect/token` itself gets `invalid_grant`. Accounts opened this way have no
+password at all, so logging in a second time cannot invalidate the first session.
 
 ## Verification code delivery
 

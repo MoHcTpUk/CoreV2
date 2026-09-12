@@ -8,19 +8,22 @@
 # `NatsUser` / `NatsPassword` — плоские ключи (Shared.Messaging/NatsConnectionFactory.cs).
 #
 # Шина работает по TLS (deploy/nats/nats-server.conf), поэтому каждому сервису
-# монтируется ./certs/nats — из него читается только ca.pem, по которому клиент
-# проверяет сертификат шины. Файлы создаются на сервере один раз:
+# монтируется один файл — ./certs/nats/ca.pem, по которому клиент проверяет сертификат
+# шины. Каталог целиком не монтируется: ключ сервера nats-key.pem нужен только контейнеру
+# nats (docker-compose.infra.yml), а сервисам, в том числе смотрящему в интернет gateway,
+# закрытые ключи не нужны. Файлы создаются на сервере один раз:
 #   bash deploy/generate-nats-certs.sh
-# start_stage.sh отказывается деплоить, если их нет.
+# start_stage.sh отказывается деплоить, если их нет. После перевыпуска сертификата
+# сервисы нужно перезапустить: они держат прежний ca.pem.
 #
-# ОГРАНИЧЕНИЕ: это bind-mount, то есть каталог обязан существовать на том узле, где
+# ОГРАНИЧЕНИЕ: это bind-mount, то есть файл обязан существовать на том узле, где
 # запущен контейнер. Stage — один узел (deploy_all_stage.sh копирует файлы на один
 # хост), поэтому ограничение соблюдается само собой. При расширении swarm до нескольких
 # узлов ca.pem нужно раздать как docker config, а не монтировать с диска.
 services:
   gateway:
     volumes:
-      - ./certs/nats:/etc/nats/certs:ro
+      - ./certs/nats/ca.pem:/etc/nats/certs/ca.pem:ro
     environment:
       - ASPNETCORE_ENVIRONMENT=Stage
       - NatsUser=${NATS_USER:?NATS_USER is required, see deploy/.env.example}
@@ -45,7 +48,7 @@ services:
 
   users:
     volumes:
-      - ./certs/nats:/etc/nats/certs:ro
+      - ./certs/nats/ca.pem:/etc/nats/certs/ca.pem:ro
     environment:
       - DOTNET_ENVIRONMENT=Stage
       - NatsUser=${NATS_USER:?NATS_USER is required, see deploy/.env.example}
@@ -54,7 +57,7 @@ services:
 
   sample:
     volumes:
-      - ./certs/nats:/etc/nats/certs:ro
+      - ./certs/nats/ca.pem:/etc/nats/certs/ca.pem:ro
     environment:
       - DOTNET_ENVIRONMENT=Stage
       - NatsUser=${NATS_USER:?NATS_USER is required, see deploy/.env.example}
@@ -63,7 +66,7 @@ services:
 
   identity:
     volumes:
-      - ./certs/nats:/etc/nats/certs:ro
+      - ./certs/nats/ca.pem:/etc/nats/certs/ca.pem:ro
     environment:
       - DOTNET_ENVIRONMENT=Stage
       - NatsUser=${NATS_USER:?NATS_USER is required, see deploy/.env.example}
@@ -80,7 +83,7 @@ services:
     #   docker secret create identity_encryption_certificate           <файл>.pfx
     #   docker secret create identity_encryption_certificate_password  <файл>.pass
     volumes:
-      - ./certs/nats:/etc/nats/certs:ro
+      - ./certs/nats/ca.pem:/etc/nats/certs/ca.pem:ro
     secrets:
       - identity_signing_certificate
       - identity_signing_certificate_password
