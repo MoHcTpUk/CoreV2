@@ -1,5 +1,6 @@
 using Identity.WebApi.Security;
 using OpenIddict.Abstractions;
+using Shared.Domain.Interfaces;
 
 namespace Identity.WebApi;
 
@@ -26,6 +27,12 @@ internal sealed class AppInitializer(IServiceProvider serviceProvider, IConfigur
     public async Task StartAsync(CancellationToken cancellationToken)
     {
         using var scope = serviceProvider.CreateScope();
+
+        // База identity общая с Identity.Service, но порядок старта не гарантирован: без этого
+        // на пустом кластере запрос к таблицам OpenIddict ниже падал бы с 3D000/42P01.
+        foreach (var migrator in scope.ServiceProvider.GetServices<IDatabaseMigrator>())
+            await migrator.MigrateAsync(cancellationToken);
+
         var applicationManager = scope.ServiceProvider.GetRequiredService<IOpenIddictApplicationManager>();
         var clientId = configuration["OpenIddict:ClientId"] ?? "core-app";
 

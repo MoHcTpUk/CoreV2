@@ -441,6 +441,11 @@ its infrastructure through an SSH tunnel or `docker exec`.
 2. **Infrastructure** stack — Traefik, PostgreSQL, Redis, NATS, MinIO
 3. **Application** stack — Gateway, Identity, Identity.WebApi, Users, Sample
 
+There is no separate database step. On startup every service creates its database (`identity`, `users`,
+`sample`) if it is missing and applies migrations (`Shared.Infrastructure/EfCoreDatabaseMigrator.cs`), waiting
+for PostgreSQL to come up. The login from `ConnectionStrings__DefaultConnection` therefore needs the `CREATEDB`
+privilege — `POSTGRES_USER` has it, since the postgres image creates it as a superuser.
+
 ## Scripts Reference
 
 ### `scripts/` — Build & Publish
