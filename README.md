@@ -439,51 +439,7 @@ its infrastructure through an SSH tunnel or `docker exec`.
 
 1. **Management** stack — Portainer
 2. **Infrastructure** stack — Traefik, PostgreSQL, Redis, NATS, MinIO
-3. **Databases** — `deploy/ensure-databases.sh` (see [Database cold start](#database-cold-start))
-4. **Application** stack — Gateway, Identity, Identity.WebApi, Users, Sample
-
-Step 3 is not optional: the services do not create their own databases, and
-`Database.MigrateAsync()` fails outright if the database does not already exist. Both
-`start_local.sh` and `start_stage.sh` run it between steps 2 and 4.
-
-## Database cold start
-
-Every service connects to a named database that must exist **before** it starts:
-
-| Database   | Used by                             |
-| ---------- | ----------------------------------- |
-| `identity` | Identity.Service, Identity.WebApi   |
-| `users`    | Users.Service                       |
-| `sample`   | Sample.Service                      |
-
-The official `postgres` image creates exactly one database on first boot — `$POSTGRES_DB`, or, when that
-variable is unset (as here), one named after `$POSTGRES_USER`. EF Core migrations do not help: `MigrateAsync`
-creates *tables*, not the database, so on an untouched volume all three services die with
-`3D000: database "users" does not exist` and restart-loop until `max_attempts: 10` runs out.
-
-Two mechanisms cover this, both driven by the same file — `deploy/postgres/initdb/10-create-databases.sql`:
-
-* **Empty volume.** The directory `deploy/postgres/initdb` is mounted at `/docker-entrypoint-initdb.d`
-  (`docker-compose.infra.yml`, so both stands get it). The postgres entrypoint runs the script while
-  initializing the cluster.
-* **Volume that already exists.** The entrypoint runs `/docker-entrypoint-initdb.d` **only** on an empty
-  data directory — a stand deployed before this script existed would never see it. `deploy/ensure-databases.sh`
-  therefore pipes the same file into the running container on every deploy. This is the path that matters on
-  stage, where `postgres_data` was created long ago.
-
-The SQL guards each `CREATE DATABASE` with a `pg_database` lookup and executes it via `\gexec`, so it creates
-only what is missing and is safe to run repeatedly. `ensure-databases.sh` reads `POSTGRES_USER` /
-`POSTGRES_PASSWORD` from the container's own environment, so the credentials have a single source of truth
-(the compose files) and never appear on the host command line.
-
-Adding a vertical slice with its own database? Add it to the `VALUES` list in the SQL file — nothing else
-needs to change.
-
-To run it by hand, or after restoring a volume:
-
-```bash
-bash deploy/ensure-databases.sh
-```
+3. **Application** stack — Gateway, Identity, Identity.WebApi, Users, Sample
 
 ## Scripts Reference
 
@@ -510,7 +466,7 @@ All scripts must be run from the `scripts/` directory. Build scripts accept an o
 
 | Script                | Description                                                                |
 | --------------------- | -------------------------------------------------------------------------- |
-| `deploy_all_stage.sh` | Copies compose files, `nats/`, `postgres/`, `.env.example`, `start_stage.sh`, `ensure-databases.sh`, `generate-identity-certs.sh`, `generate-nats-certs.sh` and `project.env`, runs `start_stage.sh`. Never copies `deploy/.env`, the generated certificates or the Swarm secrets |
+| `deploy_all_stage.sh` | Copies compose files, `nats/`, `.env.example`, `start_stage.sh`, `generate-identity-certs.sh`, `generate-nats-certs.sh` and `project.env`, runs `start_stage.sh`. Never copies `deploy/.env`, the generated certificates or the Swarm secrets |
 
 ### `deploy/` — Docker Swarm
 
@@ -518,7 +474,6 @@ All scripts must be run from the `scripts/` directory. Build scripts accept an o
 | ----------------------------------- | -------------------------------------------------------------- |
 | `start_local.sh`                    | Inits Swarm (if needed), issues the NATS TLS certificate, deploys management + infra + app |
 | `start_stage.sh`                    | Pulls images from GHCR, deploys all stacks for stage           |
-| `ensure-databases.sh`               | Creates the `identity`/`users`/`sample` databases if missing. Idempotent; called by both start scripts |
 | `stop.sh`                           | Removes app, infra, and management stacks                      |
 | `switch-gateway-mode.sh <mode>`     | Switches Gateway between `docker`, `local`, or shows `status`  |
 | `generate-identity-certs.sh`        | Issues the OpenIddict signing/encryption PKCS#12 bundles; `--create-secrets` registers them as Swarm secrets |
@@ -544,4 +499,3 @@ All scripts must be run from the `scripts/` directory. Build scripts accept an o
 | ----------------------- | ------------------------------------------------------------------------ |
 | `.env.example`          | Template for `deploy/.env`. Placeholders only, no real values            |
 | `nats/nats-server.conf` | NATS config: authentication via `$NATS_USER` / `$NATS_PASSWORD` and required TLS (`deploy/certs/nats/`) |
-| `postgres/initdb/10-create-databases.sql` | Creates `identity`, `users`, `sample`. Mounted at `/docker-entrypoint-initdb.d`; see [Database cold start](#database-cold-start) |

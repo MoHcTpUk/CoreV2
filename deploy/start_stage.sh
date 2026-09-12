@@ -61,13 +61,5 @@ docker stack deploy --detach=false --resolve-image always --with-registry-auth -
 wait
 docker stack deploy --detach=false --resolve-image always --with-registry-auth --compose-file docker-compose.infra.yml --compose-file docker-compose.infra.stage.yml infra
 wait
-
-# Порядок важен: сервисы не создают свои базы (Database.MigrateAsync требует уже
-# существующей БД), поэтому app поднимаем только после того, как identity/users/sample
-# точно есть. На stage том postgres_data, как правило, уже существует — init-скрипты
-# из /docker-entrypoint-initdb.d на нём не выполняются, и создать базы может только
-# этот вызов. Скрипт идемпотентен.
-bash ./ensure-databases.sh || exit 1
-
 docker stack deploy --detach=false --resolve-image always --with-registry-auth --compose-file docker-compose.app.yml --compose-file docker-compose.app.stage.yml app
 wait
