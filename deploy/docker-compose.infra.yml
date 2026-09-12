@@ -71,12 +71,17 @@ services:
     image: nats:latest
     # Аутентификация задана в ./nats/nats-server.conf: сам файл секретов не содержит,
     # логин/пароль подставляются из $NATS_USER / $NATS_PASSWORD окружения контейнера.
+    # Там же включён TLS — порт 4222 не принимает открытых подключений.
     command: ["-c", "/etc/nats/nats-server.conf", "-js", "-m", "8222"]
     environment:
       NATS_USER: ${NATS_USER}
       NATS_PASSWORD: ${NATS_PASSWORD}
     volumes:
       - ./nats/nats-server.conf:/etc/nats/nats-server.conf:ro
+      # Сертификат сервера и корневой сертификат стенда. Создаются один раз скриптом
+      # deploy/generate-nats-certs.sh, в git не хранятся. Тот же каталог монтируется
+      # сервисам приложения — им нужен только ca.pem.
+      - ./certs/nats:/etc/nats/certs:ro
       - nats_data:/data
     deploy:
       replicas: 1

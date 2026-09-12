@@ -7,6 +7,8 @@ public class IdentityDbContext(DbContextOptions<IdentityDbContext> options) : Db
 {
     public DbSet<ApplicationUser> Users { get; set; }
 
+    public DbSet<AuthTicket> AuthTickets { get; set; }
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         base.OnModelCreating(modelBuilder);
@@ -16,6 +18,13 @@ public class IdentityDbContext(DbContextOptions<IdentityDbContext> options) : Db
             entity.HasKey(e => e.Id);
             entity.HasIndex(e => e.Email).IsUnique();
             entity.HasIndex(e => e.UserName).IsUnique();
+        });
+
+        modelBuilder.Entity<AuthTicket>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            // Redemption and the sweep of dead tickets both look the row up by expiry.
+            entity.HasIndex(e => e.ExpiresAt);
         });
 
         // OpenIddict entities

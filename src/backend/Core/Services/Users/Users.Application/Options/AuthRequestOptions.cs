@@ -13,12 +13,10 @@ public class AuthRequestOptions
     private const int MinimumVerificationCodeLength = 6;
     private const int MinimumLifetimeMinutes = 5;
     private const int MaximumLifetimeMinutes = 10;
-    private const int MinimumTemporaryPasswordLength = 20;
 
     private int _verificationCodeLength = MinimumVerificationCodeLength;
     private int _lifetimeMinutes = MaximumLifetimeMinutes;
     private int _maxVerificationAttempts = 5;
-    private int _temporaryPasswordLength = 32;
 
     /// <summary>Number of digits in the verification code. Never below six.</summary>
     public int VerificationCodeLength
@@ -39,13 +37,6 @@ public class AuthRequestOptions
     {
         get => _maxVerificationAttempts;
         set => _maxVerificationAttempts = Math.Max(1, value);
-    }
-
-    /// <summary>Length of the temporary password handed to the identity service. Never below twenty.</summary>
-    public int TemporaryPasswordLength
-    {
-        get => _temporaryPasswordLength;
-        set => _temporaryPasswordLength = Math.Max(MinimumTemporaryPasswordLength, value);
     }
 
     public TimeSpan Lifetime => TimeSpan.FromMinutes(LifetimeMinutes);

@@ -56,7 +56,7 @@ created from `deploy/.env.example` on the machine that runs the stack and is git
 | Variable | Consumers | Meaning |
 | --- | --- | --- |
 | `POSTGRES_USER`, `POSTGRES_PASSWORD` | `postgres`; `users`, `sample`, `identity`, `identity-webapi` | Database login. Substituted into `ConnectionStrings__DefaultConnection`, so avoid `;`, `'` and `"` in the password |
-| `NATS_USER`, `NATS_PASSWORD` | `nats`; all five services | Bus login. The bus rejects unauthenticated clients |
+| `NATS_USER`, `NATS_PASSWORD` | `nats`; all five services | Bus login. The bus rejects unauthenticated clients, and requires TLS on top (see [NATS TLS](#nats-tls)) |
 | `MINIO_ROOT_USER`, `MINIO_ROOT_PASSWORD` | `minio`; `gateway` | Object storage root credentials |
 | `REDIS_CONNECTION_STRING` | `identity-webapi` | Where the DataProtection key ring lives. `redis:6379` by default — the Redis of the infra stack |
 | `TRAEFIK_LOG_LEVEL` | `traefik` | `INFO` by default. `DEBUG` logs request headers — never on stage |
@@ -127,10 +127,35 @@ nats-server expands `$NATS_USER` / `$NATS_PASSWORD` from the container environme
 (`nats://user:password@host:4222`) work as well. Without them the server answers
 `Authorization Violation`, which the connection factory prints to the log.
 
-**TLS on the bus is not enabled yet.** The stand has no certificate for the internal `nats` name, so
-traffic inside the overlay network is still plaintext — the port is simply no longer published anywhere.
-The server-side `tls { … }` block sits commented out in `nats-server.conf`; the client side turns on with
-`NatsTlsEnabled=true`.
+### NATS TLS
+
+The bus also refuses plaintext connections. `deploy/nats/nats-server.conf` carries a `tls { … }` block, and
+the server logs `TLS required for client connections` on start; a client that connects without TLS is
+dropped during the handshake.
+
+The certificate is never committed. `deploy/generate-nats-certs.sh` issues it into `deploy/certs/nats/`
+(SAN `nats`, `localhost`, `127.0.0.1`) and is idempotent: it reuses an existing, unexpired certificate and
+only reissues when asked with `--force`. It signs with the machine's `mkcert` CA when that is installed and
+falls back to a private CA created by `openssl` otherwise. Either way the root lands in
+`deploy/certs/nats/ca.pem`, and every client is pointed at that file — containers through
+`NatsTlsCaFile=/etc/nats/certs/ca.pem`, IDE runs through the `NatsTlsCaFile` entry in
+`src/backend/Core/.run/*.run.xml`. Do not count on the system trust store: even a `mkcert` root that macOS
+trusts is not honoured by .NET's default validation here.
+
+`start_local.sh` runs the script for you. On stage the certificate is issued **on the server** —
+`deploy_all_stage.sh` copies the script but never the key material, and `start_stage.sh` refuses to deploy
+when `deploy/certs/nats/` is empty.
+
+Clients read three keys (`Shared/Shared.Messaging/Messaging/NatsConnectionFactory.cs`):
+
+| Key | Default | Meaning |
+| --- | --- | --- |
+| `NatsTlsEnabled` | `true` | TLS is on unless something explicitly sets `false` |
+| `NatsTlsCaFile` | empty | Root certificate to verify the bus against. Empty → the system trust store |
+| `NatsUser` / `NatsPassword` | empty | Bus login, still required on top of TLS |
+
+`NatsTlsCaFile` narrows which root is trusted; it does not disable verification. The host name and validity
+of the server certificate are checked either way, and a certificate signed by an unknown CA is refused.
 
 ### Token signing keys and DataProtection
 
@@ -247,6 +272,13 @@ docker service logs core_users | grep DEVELOPMENT
 Exchange the `id` and the `verificationCode` at `https://auth.coreapp.local:8443/connect/token` for an
 access token, then call `POST /Samples/Create` with it.
 
+Behind that endpoint the exchange never involves a password. `VerifyAuthToTokenMiddleware` sends the code to
+the `users` service, which verifies it and asks Identity for a **single-use ticket**: bound to one user,
+valid for at most 60 seconds, stored only as a SHA-256 digest, and spent by the first redemption. The
+middleware then rewrites the request as the internal `auth_request` grant and the token controller redeems
+the ticket. Accounts opened this way have no password at all, so logging in a second time cannot invalidate
+the first session.
+
 ## Verification code delivery
 
 `POST /Users/CreateAuthRequest` generates a verification code, stores it, and hands it to
@@ -337,7 +369,8 @@ cd scripts
 ./deploy_all_stage.sh
 ```
 
-Copies the compose files, `deploy/nats/`, `.env.example`, `start_stage.sh` and `project.env` via SCP, then
+Copies the compose files, `deploy/nats/`, `.env.example`, `start_stage.sh`, `generate-nats-certs.sh` and
+`project.env` via SCP, then
 runs `start_stage.sh` on the server. Always publish before deploying: stage pulls images from the registry,
 it does not build them.
 
@@ -385,7 +418,7 @@ service from scratch.
 | Traefik Dashboard  | not published — see [Traefik dashboard](#traefik-dashboard) |
 | Portainer UI       | http://localhost:9003         |
 | PostgreSQL         | localhost:6566                |
-| NATS Client        | localhost:4223 (login required) |
+| NATS Client        | localhost:4223 (TLS + login required) |
 | NATS Monitoring    | http://localhost:8223         |
 | MinIO API          | http://localhost:9009         |
 | MinIO Console      | http://localhost:9001         |
@@ -468,19 +501,20 @@ All scripts must be run from the `scripts/` directory. Build scripts accept an o
 
 | Script                | Description                                                                |
 | --------------------- | -------------------------------------------------------------------------- |
-| `deploy_all_stage.sh` | Copies compose files, `nats/`, `postgres/`, `.env.example`, `start_stage.sh`, `ensure-databases.sh`, `generate-identity-certs.sh` and `project.env`, runs `start_stage.sh`. Never copies `deploy/.env`, the generated certificates or the Swarm secrets |
+| `deploy_all_stage.sh` | Copies compose files, `nats/`, `postgres/`, `.env.example`, `start_stage.sh`, `ensure-databases.sh`, `generate-identity-certs.sh`, `generate-nats-certs.sh` and `project.env`, runs `start_stage.sh`. Never copies `deploy/.env`, the generated certificates or the Swarm secrets |
 
 ### `deploy/` — Docker Swarm
 
 | Script                              | Description                                                    |
 | ----------------------------------- | -------------------------------------------------------------- |
-| `start_local.sh`                    | Inits Swarm (if needed), deploys management + infra + app      |
+| `start_local.sh`                    | Inits Swarm (if needed), issues the NATS TLS certificate, deploys management + infra + app |
 | `start_stage.sh`                    | Pulls images from GHCR, deploys all stacks for stage           |
 | `ensure-databases.sh`               | Creates the `identity`/`users`/`sample` databases if missing. Idempotent; called by both start scripts |
 | `stop.sh`                           | Removes app, infra, and management stacks                      |
 | `switch-gateway-mode.sh <mode>`     | Switches Gateway between `docker`, `local`, or shows `status`  |
 | `generate-identity-certs.sh`        | Issues the OpenIddict signing/encryption PKCS#12 bundles; `--create-secrets` registers them as Swarm secrets |
-| `generate-local-certs.sh`           | Generates local HTTPS certs via mkcert or OpenSSL              |
+| `generate-nats-certs.sh`            | Issues the TLS certificate for the bus into `deploy/certs/nats/`. Idempotent; `--force` reissues |
+| `generate-local-certs.sh`           | Generates local HTTPS certs via mkcert or OpenSSL, then the NATS certificate |
 | `generate-local-certs.ps1`          | Same as above, PowerShell version for Windows                  |
 
 ### `deploy/` — Compose Files
@@ -500,5 +534,5 @@ All scripts must be run from the `scripts/` directory. Build scripts accept an o
 | File                    | Description                                                              |
 | ----------------------- | ------------------------------------------------------------------------ |
 | `.env.example`          | Template for `deploy/.env`. Placeholders only, no real values            |
-| `nats/nats-server.conf` | NATS config: authentication via `$NATS_USER` / `$NATS_PASSWORD`, TLS block commented out |
+| `nats/nats-server.conf` | NATS config: authentication via `$NATS_USER` / `$NATS_PASSWORD` and required TLS (`deploy/certs/nats/`) |
 | `postgres/initdb/10-create-databases.sql` | Creates `identity`, `users`, `sample`. Mounted at `/docker-entrypoint-initdb.d`; see [Database cold start](#database-cold-start) |

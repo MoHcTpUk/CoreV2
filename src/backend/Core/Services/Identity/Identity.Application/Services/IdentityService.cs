@@ -8,20 +8,20 @@ namespace Identity.Application.Services;
 public class IdentityService(
     IApplicationUserRepository userRepository) : IIdentityService
 {
-    public async Task<Guid> CreateUserAsync(string email, string userName, string password,
+    public async Task<Guid> CreateUserAsync(string email, string userName,
         CancellationToken cancellationToken)
     {
         var existingUser = await userRepository.GetByEmailAsync(email, cancellationToken);
         if (existingUser != null) throw new InvalidOperationException($"User with email {email} already exists");
 
-        var passwordHash = BCrypt.Net.BCrypt.HashPassword(password);
-
+        // No password is invented for the account: PasswordHash stays null and the password grant simply
+        // has nothing to match. The user logs in through the verification flow, which mints a ticket.
         var newUser = new ApplicationUser
         {
             Id = Guid.NewGuid(),
             Email = email,
             UserName = userName,
-            PasswordHash = passwordHash,
+            PasswordHash = null,
             CreatedAt = DateTime.UtcNow
         };
 
@@ -36,6 +36,9 @@ public class IdentityService(
     {
         var user = await userRepository.GetByEmailAsync(email, cancellationToken);
         if (user == null) return null;
+
+        // A passwordless account cannot be logged into with a password, whatever is presented.
+        if (string.IsNullOrEmpty(user.PasswordHash)) return null;
 
         if (!BCrypt.Net.BCrypt.Verify(password, user.PasswordHash)) return null;
 

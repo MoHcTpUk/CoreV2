@@ -14,7 +14,6 @@ public class CreateIdentityUserHandler(
         var userId = await identityService.CreateUserAsync(
             request.Email,
             request.UserName,
-            request.Password,
             cancellationToken);
 
         return userId;

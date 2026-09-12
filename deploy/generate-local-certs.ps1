@@ -119,5 +119,12 @@ if ($mkcertPath) {
     Write-Host "⚠️  Браузер покажет предупреждение - нажмите 'Продолжить' или 'Advanced > Proceed'" -ForegroundColor Yellow
 }
 
+# Сертификат TLS для шины NATS выпускается отдельным скриптом: у него другое имя (`nats`)
+# и он нужен не браузеру, а сервисам. Реализация только на bash — её же вызывает
+# start_local.sh, которым и поднимается локальный стенд.
+Write-Host ""
+Write-Host "ℹ️  TLS для шины NATS: запустите deploy/generate-nats-certs.sh (bash/WSL/Git Bash)," -ForegroundColor Yellow
+Write-Host "   либо просто deploy/start_local.sh — он вызывает этот скрипт сам." -ForegroundColor Yellow
+
 Write-Host ""
 Write-Host "🎉 Готово! Теперь можно запускать сервисы с HTTPS" -ForegroundColor Green

@@ -13,6 +13,10 @@ if ! docker node ls &> /dev/null; then
     docker swarm init
 fi
 
+# Шина работает только по TLS (deploy/nats/nats-server.conf), а сертификата в git нет.
+# Скрипт идемпотентен: на втором запуске он видит готовый сертификат и ничего не делает.
+bash ./generate-nats-certs.sh || exit 1
+
 docker stack deploy --detach=false --compose-file docker-compose.management.yml --compose-file docker-compose.management.local.yml management
 docker stack deploy --detach=false --compose-file docker-compose.infra.yml --compose-file docker-compose.infra.local.yml infra
 

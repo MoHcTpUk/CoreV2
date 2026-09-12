@@ -3,7 +3,7 @@ using Users.Contracts.Dtos;
 
 namespace Users.Contracts.Commands.AuthRequest;
 
-public class VerifyAuthRequestCommand : ICommand<UserDto>
+public class VerifyAuthRequestCommand : ICommand<VerifiedAuthDto>
 {
     public required Guid Id { get; set; }
 

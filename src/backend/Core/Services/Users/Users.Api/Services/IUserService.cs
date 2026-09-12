@@ -10,7 +10,7 @@ public interface IUserService : IService<CreateUserCommand, UpdateUserCommand, D
 {
     Task<AuthRequestDto> CreateAuthRequest(CreateAuthRequestCommand requestCommand);
 
-    Task<UserDto> VerifyAuthRequest(VerifyAuthRequestCommand requestCommand);
+    Task<VerifiedAuthDto> VerifyAuthRequest(VerifyAuthRequestCommand requestCommand);
 
     /// <summary>
     ///     Development-only. Backed by a handler that refuses the command outside the Development

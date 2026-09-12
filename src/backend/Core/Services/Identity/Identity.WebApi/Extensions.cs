@@ -65,6 +65,11 @@ public static class Extensions
                 options.AllowPasswordFlow()
                     .AllowRefreshTokenFlow();
 
+                // Собственный grant для подтверждённого auth request: клиент предъявляет одноразовый
+                // ticket, выпущенный Identity, а не пароль. Пароль по шине больше не ходит
+                // (см. Identity.WebApi/Security/AuthRequestGrant.cs).
+                options.AllowCustomFlow(AuthRequestGrant.GrantType);
+
                 options.DisableAccessTokenEncryption();
 
                 options.RegisterScopes(

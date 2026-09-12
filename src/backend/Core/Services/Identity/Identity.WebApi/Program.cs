@@ -69,8 +69,9 @@ app.UseTokenSubjectPartitionKey("/connect/token");
 // never reaches the token controller.
 app.UseRateLimiter();
 
-// Allows issuing tokens from verification flows by translating custom request payloads
-// to an internal /connect/token password grant flow within the same HTTP request.
+// Allows issuing tokens from verification flows by exchanging the verification payload for a
+// single-use ticket and translating it into the internal 'auth_request' grant, within the same
+// HTTP request. No password is involved at any point.
 app.UseMiddleware<VerifyAuthToTokenMiddleware>();
 
 app.UseAuthentication();

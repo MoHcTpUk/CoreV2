@@ -16,27 +16,11 @@ public class IdentityService(ICommandBus commandBus) : IIdentityService
         return result;
     }
 
-    public async Task<SetIdentityUserPasswordResult> SetUserPasswordAsync(SetIdentityUserPasswordCommand command)
+    public async Task<IssueAuthTicketResult> IssueAuthTicketAsync(IssueAuthTicketCommand command)
     {
-        var result = await commandBus.SendAsync<SetIdentityUserPasswordCommand, SetIdentityUserPasswordResult>(
+        var result = await commandBus.SendAsync<IssueAuthTicketCommand, IssueAuthTicketResult>(
             command, IdentityServiceSubject);
 
-        return result ?? new SetIdentityUserPasswordResult
-        {
-            Success = false,
-            ErrorMessage = "No response from IdentityService"
-        };
-    }
-
-    public async Task<GenerateTokenResult> GenerateTokenAsync(GenerateTokenCommand command)
-    {
-        var result = await commandBus.SendAsync<GenerateTokenCommand, GenerateTokenResult>(
-            command, IdentityServiceSubject);
-
-        return result ?? new GenerateTokenResult
-        {
-            Success = false,
-            ErrorMessage = "No response from IdentityService"
-        };
+        return result ?? throw new InvalidOperationException("No response from IdentityService");
     }
 }

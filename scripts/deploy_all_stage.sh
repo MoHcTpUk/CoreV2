@@ -15,11 +15,13 @@ scp -P "$STAGE_SSH_PORT" \
 ../deploy/start_stage.sh \
 ../deploy/ensure-databases.sh \
 ../deploy/generate-identity-certs.sh \
+../deploy/generate-nats-certs.sh \
 ../deploy/.env.example \
 "$STAGE_SSH_HOST:~/dogapp/deploy"
 
-# Конфигурация NATS (аутентификация) монтируется в контейнер как ./nats/nats-server.conf.
-# Секретов в ней нет: логин/пароль подставляются из окружения.
+# Конфигурация NATS (аутентификация и TLS) монтируется в контейнер как ./nats/nats-server.conf.
+# Секретов в ней нет: логин/пароль подставляются из окружения, а сертификат и ключ шины
+# выпускаются на самом сервере (generate-nats-certs.sh) и сюда не копируются.
 scp -P "$STAGE_SSH_PORT" -r \
 ../deploy/nats \
 "$STAGE_SSH_HOST:~/dogapp/deploy"

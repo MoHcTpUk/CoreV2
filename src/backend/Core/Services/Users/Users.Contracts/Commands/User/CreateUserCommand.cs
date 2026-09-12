@@ -7,6 +7,4 @@ namespace Users.Contracts.Commands.User;
 public class CreateUserCommand : CreateCommand<ResultContainer<UserDto>>
 {
     public required string Email { get; set; }
-
-    public required string Password { get; set; }
 }

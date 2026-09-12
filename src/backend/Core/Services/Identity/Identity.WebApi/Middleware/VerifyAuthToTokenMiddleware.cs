@@ -1,6 +1,7 @@
 using System.Text;
 using System.Text.Json;
 using Shared.Messaging.Messaging;
+using Identity.WebApi.Security;
 using Microsoft.AspNetCore.Http.Features;
 using Microsoft.Extensions.Primitives;
 using OpenIddict.Abstractions;
@@ -9,6 +10,15 @@ using Users.Api.Services;
 
 namespace Identity.WebApi.Middleware;
 
+/// <summary>
+///     Translates the verification payload (<c>id</c> + <c>verificationCode</c>) into an
+///     <see cref="AuthRequestGrant.GrantType" /> token request, within the same HTTP request.
+///     <para>
+///         The Users service answers the verification with a single-use ticket, never with a password:
+///         nothing that could be replayed against the account, and nothing that survives past a minute,
+///         ever travels over the message bus.
+///     </para>
+/// </summary>
 public sealed class VerifyAuthToTokenMiddleware(RequestDelegate next)
 {
     private const string OAuthErrorUri = "https://datatracker.ietf.org/doc/html/rfc6749#section-5.2";
@@ -64,8 +74,7 @@ public sealed class VerifyAuthToTokenMiddleware(RequestDelegate next)
             return;
         }
 
-        string userEmail;
-        string password;
+        string ticket;
         try
         {
             var command = new VerifyAuthRequestCommand
@@ -74,10 +83,8 @@ public sealed class VerifyAuthToTokenMiddleware(RequestDelegate next)
                 VerificationCode = verificationCode
             };
 
-            var verifiedUser = await userService.VerifyAuthRequest(command);
-            userEmail = verifiedUser.Email;
-            password = verifiedUser.Password;
-            context.Items["VerifiedAuthUserEmail"] = userEmail;
+            var verified = await userService.VerifyAuthRequest(command);
+            ticket = verified.Ticket;
         }
         catch (RemoteProblemDetailsException ex)
         {
@@ -99,9 +106,8 @@ public sealed class VerifyAuthToTokenMiddleware(RequestDelegate next)
 
         var form = new Dictionary<string, string?>
         {
-            ["grant_type"] = OpenIddictConstants.GrantTypes.Password,
-            ["username"] = userEmail,
-            ["password"] = password,
+            ["grant_type"] = AuthRequestGrant.GrantType,
+            [AuthRequestGrant.TicketParameter] = ticket,
             ["scope"] = scope,
             ["client_id"] = configuration["OpenIddict:ClientId"]
         };

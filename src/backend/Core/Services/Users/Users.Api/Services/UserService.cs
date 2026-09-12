@@ -26,10 +26,10 @@ public class UserService(ICommandBus commandBus)
         return result;
     }
 
-    public async Task<UserDto> VerifyAuthRequest(VerifyAuthRequestCommand command)
+    public async Task<VerifiedAuthDto> VerifyAuthRequest(VerifyAuthRequestCommand command)
     {
         var result =
-            await _commandBus.SendAsync<VerifyAuthRequestCommand, UserDto>(
+            await _commandBus.SendAsync<VerifyAuthRequestCommand, VerifiedAuthDto>(
                 command, Subject);
 
         if (result is null)
