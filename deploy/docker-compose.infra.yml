@@ -86,7 +86,9 @@ services:
       - traefik
 
   minio:
-    image: minio/minio:latest
+    # Официальный minio/minio больше не публикуется (community-версия MinIO — только исходники).
+    # pgsty/minio — поддерживаемый форк с тем же бинарником, путями и переменными окружения.
+    image: pgsty/minio:RELEASE.2026-08-04T00-00-00Z
     environment:
       MINIO_ROOT_USER: ${MINIO_ROOT_USER}
       MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
