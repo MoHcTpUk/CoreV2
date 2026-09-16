@@ -66,17 +66,14 @@ services:
     image: nats:latest
     # Аутентификация задана в ./nats/nats-server.conf: сам файл секретов не содержит,
     # логин/пароль подставляются из $NATS_USER / $NATS_PASSWORD окружения контейнера.
-    # Там же включён TLS — порт 4222 не принимает открытых подключений.
+    # TLS на шине не используется: порт 4222 не публикуется наружу и доступен только
+    # внутри overlay-сети стенда.
     command: ["-c", "/etc/nats/nats-server.conf", "-js", "-m", "8222"]
     environment:
       NATS_USER: ${NATS_USER}
       NATS_PASSWORD: ${NATS_PASSWORD}
     volumes:
       - ./nats/nats-server.conf:/etc/nats/nats-server.conf:ro
-      # Сертификат сервера, его ключ (0600) и корневой сертификат стенда. Создаются один раз
-      # скриптом deploy/generate-nats-certs.sh, в git не хранятся. Закрытого ключа CA в каталоге
-      # нет. Сервисам приложения монтируется только ca.pem, а не этот каталог.
-      - ./certs/nats:/etc/nats/certs:ro
       - nats_data:/data
     deploy:
       replicas: 1

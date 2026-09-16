@@ -56,7 +56,7 @@ created from `deploy/.env.example` on the machine that runs the stack and is git
 | Variable | Consumers | Meaning |
 | --- | --- | --- |
 | `POSTGRES_USER`, `POSTGRES_PASSWORD` | `postgres`; `users`, `sample`, `identity`, `identity-webapi` | Database login. Substituted into `ConnectionStrings__DefaultConnection`, so avoid `;`, `'` and `"` in the password |
-| `NATS_USER`, `NATS_PASSWORD` | `nats`; all five services | Bus login. The bus rejects unauthenticated clients, and requires TLS on top (see [NATS TLS](#nats-tls)) |
+| `NATS_USER`, `NATS_PASSWORD` | `nats`; all five services | Bus login. The bus rejects unauthenticated clients (see [NATS authentication](#nats-authentication)) |
 | `MINIO_ROOT_USER`, `MINIO_ROOT_PASSWORD` | `minio`; `gateway` | Object storage root credentials |
 | `REDIS_CONNECTION_STRING` | `identity-webapi` | Where the DataProtection key ring lives. `redis:6379` by default — the Redis of the infra stack |
 | `TRAEFIK_LOG_LEVEL` | `traefik` | `INFO` by default. `DEBUG` logs request headers — never on stage |
@@ -127,42 +127,14 @@ nats-server expands `$NATS_USER` / `$NATS_PASSWORD` from the container environme
 (`nats://user:password@host:4222`) work as well. Without them the server answers
 `Authorization Violation`, which the connection factory prints to the log.
 
-### NATS TLS
-
-The bus also refuses plaintext connections. `deploy/nats/nats-server.conf` carries a `tls { … }` block, and
-the server logs `TLS required for client connections` on start; a client that connects without TLS is
-dropped during the handshake.
-
-The certificate is never committed. `deploy/generate-nats-certs.sh` issues it into `deploy/certs/nats/`
-(SAN `nats`, `localhost`, `127.0.0.1`) and is idempotent: it reuses an existing, unexpired certificate and
-only reissues when asked with `--force`. It signs with the machine's `mkcert` CA when that is installed and
-falls back to a private CA created by `openssl` otherwise. Either way the root lands in
-`deploy/certs/nats/ca.pem`, and every client is pointed at that file — containers through
-`NatsTlsCaFile=/etc/nats/certs/ca.pem`, IDE runs through the `NatsTlsCaFile` entry in
-`src/backend/Core/.run/*.run.xml`. Do not count on the system trust store: even a `mkcert` root that macOS
-trusts is not honoured by .NET's default validation here.
-
-Only the `nats` container mounts the whole `deploy/certs/nats/` directory; the application services mount the
-single file `ca.pem`, so no private key reaches them. The server key `nats-key.pem` is `0600` (the `nats`
-image runs as root). No CA private key is kept in `deploy/certs/nats/`: `mkcert` keeps its own under
-`mkcert -CAROOT`, and the `openssl` fallback creates its CA in a temporary directory and deletes the key right
-after signing. As a consequence a reissue on the `openssl` branch creates a new CA, so restart `nats` and every
-application service after `--force` — they keep the previous `ca.pem` until they restart.
-
-`start_local.sh` runs the script for you. On stage the certificate is issued **on the server** —
-`deploy_all_stage.sh` copies the script but never the key material, and `start_stage.sh` refuses to deploy
-when `deploy/certs/nats/` is empty.
-
-Clients read three keys (`Shared/Shared.Messaging/Messaging/NatsConnectionFactory.cs`):
+The bus runs without TLS: it is a trusted environment. Port `4222` is never published on stage — only the
+overlay network reaches it — and the local stand publishes `4223` for development convenience. Clients read
+two keys (`Shared/Shared.Messaging/Messaging/NatsConnectionFactory.cs`):
 
 | Key | Default | Meaning |
 | --- | --- | --- |
-| `NatsTlsEnabled` | `true` | TLS is on unless something explicitly sets `false` |
-| `NatsTlsCaFile` | empty | Root certificate to verify the bus against. Empty → the system trust store |
-| `NatsUser` / `NatsPassword` | empty | Bus login, still required on top of TLS |
-
-`NatsTlsCaFile` narrows which root is trusted; it does not disable verification. The host name and validity
-of the server certificate are checked either way, and a certificate signed by an unknown CA is refused.
+| `NatsUrl` | — | Bus address, e.g. `nats://nats:4222` |
+| `NatsUser` / `NatsPassword` | empty | Bus login |
 
 ### Token signing keys and DataProtection
 
@@ -378,7 +350,7 @@ cd scripts
 ./deploy_all_stage.sh
 ```
 
-Copies the compose files, `deploy/nats/`, `.env.example`, `start_stage.sh`, `generate-nats-certs.sh` and
+Copies the compose files, `deploy/nats/`, `.env.example`, `start_stage.sh`, `generate-identity-certs.sh` and
 `project.env` via SCP, then
 runs `start_stage.sh` on the server. Always publish before deploying: stage pulls images from the registry,
 it does not build them.
@@ -427,7 +399,7 @@ service from scratch.
 | Traefik Dashboard  | not published — see [Traefik dashboard](#traefik-dashboard) |
 | Portainer UI       | http://localhost:9003         |
 | PostgreSQL         | localhost:6566                |
-| NATS Client        | localhost:4223 (TLS + login required) |
+| NATS Client        | localhost:4223 (login required) |
 | NATS Monitoring    | http://localhost:8223         |
 | MinIO API          | http://localhost:9009         |
 | MinIO Console      | http://localhost:9001         |
@@ -471,19 +443,18 @@ All scripts must be run from the `scripts/` directory. Build scripts accept an o
 
 | Script                | Description                                                                |
 | --------------------- | -------------------------------------------------------------------------- |
-| `deploy_all_stage.sh` | Copies compose files, `nats/`, `.env.example`, `start_stage.sh`, `generate-identity-certs.sh`, `generate-nats-certs.sh` and `project.env`, runs `start_stage.sh`. Never copies `deploy/.env`, the generated certificates or the Swarm secrets |
+| `deploy_all_stage.sh` | Copies compose files, `nats/`, `.env.example`, `start_stage.sh`, `generate-identity-certs.sh` and `project.env`, runs `start_stage.sh`. Never copies `deploy/.env`, the generated certificates or the Swarm secrets |
 
 ### `deploy/` — Docker Swarm
 
 | Script                              | Description                                                    |
 | ----------------------------------- | -------------------------------------------------------------- |
-| `start_local.sh`                    | Inits Swarm (if needed), issues the NATS TLS certificate, deploys management + infra + app |
+| `start_local.sh`                    | Inits Swarm (if needed), deploys management + infra + app      |
 | `start_stage.sh`                    | Pulls images from GHCR, deploys all stacks for stage           |
 | `stop.sh`                           | Removes app, infra, and management stacks                      |
 | `switch-gateway-mode.sh <mode>`     | Switches Gateway between `docker`, `local`, or shows `status`  |
 | `generate-identity-certs.sh`        | Issues the OpenIddict signing/encryption PKCS#12 bundles; `--create-secrets` registers them as Swarm secrets |
-| `generate-nats-certs.sh`            | Issues the TLS certificate for the bus into `deploy/certs/nats/`. Idempotent; `--force` reissues |
-| `generate-local-certs.sh`           | Generates local HTTPS certs via mkcert or OpenSSL, then the NATS certificate |
+| `generate-local-certs.sh`           | Generates local HTTPS certs via mkcert or OpenSSL               |
 | `generate-local-certs.ps1`          | Same as above, PowerShell version for Windows                  |
 
 ### `deploy/` — Compose Files
@@ -503,4 +474,4 @@ All scripts must be run from the `scripts/` directory. Build scripts accept an o
 | File                    | Description                                                              |
 | ----------------------- | ------------------------------------------------------------------------ |
 | `.env.example`          | Template for `deploy/.env`. Placeholders only, no real values            |
-| `nats/nats-server.conf` | NATS config: authentication via `$NATS_USER` / `$NATS_PASSWORD` and required TLS (`deploy/certs/nats/`) |
+| `nats/nats-server.conf` | NATS config: authentication via `$NATS_USER` / `$NATS_PASSWORD` |
