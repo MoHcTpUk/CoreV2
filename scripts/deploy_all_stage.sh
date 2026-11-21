@@ -14,13 +14,11 @@ scp -P "$STAGE_SSH_PORT" \
 ../deploy/docker-compose.app.yml \
 ../deploy/start_stage.sh \
 ../deploy/generate-identity-certs.sh \
-../deploy/generate-nats-certs.sh \
 ../deploy/.env.example \
 "$STAGE_SSH_HOST:~/dogapp/deploy"
 
-# Конфигурация NATS (аутентификация и TLS) монтируется в контейнер как ./nats/nats-server.conf.
-# Секретов в ней нет: логин/пароль подставляются из окружения, а сертификат и ключ шины
-# выпускаются на самом сервере (generate-nats-certs.sh) и сюда не копируются.
+# Конфигурация NATS (аутентификация) монтируется в контейнер как ./nats/nats-server.conf.
+# Секретов в ней нет: логин/пароль подставляются из окружения.
 scp -P "$STAGE_SSH_PORT" -r \
 ../deploy/nats \
 "$STAGE_SSH_HOST:~/dogapp/deploy"

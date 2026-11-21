@@ -20,16 +20,6 @@ if [ ${#missing[@]} -ne 0 ]; then
     exit 1
 fi
 
-# Fail fast: без сертификата шина не поднимется, а сервисы не смогут к ней подключиться.
-# Сертификат выпускается на самом сервере и в git не хранится.
-for cert in certs/nats/ca.pem certs/nats/nats-cert.pem certs/nats/nats-key.pem; do
-    if [ ! -f "$cert" ]; then
-        echo "ERROR: нет сертификата TLS для NATS: deploy/$cert" >&2
-        echo "Выпустите его на этом сервере: bash ./generate-nats-certs.sh" >&2
-        exit 1
-    fi
-done
-
 if ! docker node ls &> /dev/null; then
     docker swarm init
 fi
